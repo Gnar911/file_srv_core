@@ -1,5 +1,0 @@
-if(EXISTS "/home/gnar911/Desktop/20260516_JOBS_INSPECTOR/project/file_srv_core/src/build/file_service_core_tests[1]_tests.cmake")
-  include("/home/gnar911/Desktop/20260516_JOBS_INSPECTOR/project/file_srv_core/src/build/file_service_core_tests[1]_tests.cmake")
-else()
-  add_test(file_service_core_tests_NOT_BUILT file_service_core_tests_NOT_BUILT)
-endif()

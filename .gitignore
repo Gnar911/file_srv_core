@@ -1,0 +1,10 @@
+# Build outputs
+src/build/
+
+# Native module artifacts
+src/module/*.so
+
+# Python cache
+__pycache__/
+*.py[cod]
+src/module/__pycache__/
