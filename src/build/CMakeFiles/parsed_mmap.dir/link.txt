@@ -1,0 +1,1 @@
+/usr/bin/c++ -fPIC -flto=auto -shared  -o ../module/parsed_mmap.cpython-310-x86_64-linux-gnu.so CMakeFiles/parsed_mmap.dir/parsed_mmap_pybind.cpp.o  -Wl,-rpath,"\$ORIGIN/..:/home/gnar911/Desktop/20260516_JOBS_INSPECTOR/project/file_srv_core/src/build" libfile_service_core.so 

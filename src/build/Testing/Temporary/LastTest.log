@@ -1,0 +1,30 @@
+Start testing: Jun 07 23:49 JST
+----------------------------------------------------------
+1/1 Testing: ParsedMmapInterfaceApi.WriterLifecycleAndApiSmokeCoverage
+1/1 Test: ParsedMmapInterfaceApi.WriterLifecycleAndApiSmokeCoverage
+Command: "/home/gnar911/Desktop/20260516_JOBS_INSPECTOR/project/file_srv_core/src/build/file_service_core_tests" "--gtest_filter=ParsedMmapInterfaceApi.WriterLifecycleAndApiSmokeCoverage" "--gtest_also_run_disabled_tests"
+Directory: /home/gnar911/Desktop/20260516_JOBS_INSPECTOR/project/file_srv_core/src/build
+"ParsedMmapInterfaceApi.WriterLifecycleAndApiSmokeCoverage" start time: Jun 07 23:49 JST
+Output:
+----------------------------------------------------------
+Running main() from ./googletest/src/gtest_main.cc
+Note: Google Test filter = ParsedMmapInterfaceApi.WriterLifecycleAndApiSmokeCoverage
+[==========] Running 1 test from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 1 test from ParsedMmapInterfaceApi
+[ RUN      ] ParsedMmapInterfaceApi.WriterLifecycleAndApiSmokeCoverage
+[       OK ] ParsedMmapInterfaceApi.WriterLifecycleAndApiSmokeCoverage (2 ms)
+[----------] 1 test from ParsedMmapInterfaceApi (2 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test suite ran. (2 ms total)
+[  PASSED  ] 1 test.
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"ParsedMmapInterfaceApi.WriterLifecycleAndApiSmokeCoverage" end time: Jun 07 23:49 JST
+"ParsedMmapInterfaceApi.WriterLifecycleAndApiSmokeCoverage" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Jun 07 23:49 JST
