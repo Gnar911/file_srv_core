@@ -4,6 +4,59 @@ from typing import Iterable, Sequence
 
 
 def abi_version() -> int: ...
+def can_decoder_run(parsed_mmap_token: str, decoder: CanDecoder) -> DecodeError: ...
+def run_worker_segmented(file_path: str, token_id: str, fmt: int) -> int: ...
+def parse_file(path: str) -> list[ParsedEntry]: ...
+def parse_file_with_fmt(path: str, fmt: int) -> list[ParsedEntry]: ...
+def parse_line(line: str, line_num: int = 0) -> ParsedEntry | None: ...
+
+FMT_UNKNOWN: int
+FMT_CANOE: int
+FMT_CANOE_FULL: int
+FMT_CANOE_CMP: int
+FMT_CANCMD: int
+FMT_FILTER: int
+FMT_CANSUKE: int
+FMT_CANCMD_T2: int
+FMT_CANCMD_T3: int
+
+
+class MessageDef:
+    can_id: int
+    signal_count: int
+    msg_length: int
+    signal_offset: int
+    padding: int
+
+    def __init__(self) -> None: ...
+
+
+class SignalDef:
+    start_bit: int
+    bit_length: int
+    byte_order: int
+    is_signed: int
+    has_choices: int
+    padding1: int
+    scale: float
+    offset: float
+
+    def __init__(self) -> None: ...
+
+
+class DecodedSignal:
+    signal_id: int
+    raw_value: int
+    phys_value: float
+
+    def __init__(self) -> None: ...
+
+
+class DecodeError:
+    rc: int
+    error_message: str
+
+    def __init__(self) -> None: ...
 
 
 class ParsedEntry:
@@ -37,3 +90,10 @@ class ParsedMmapInterface:
 
     def get_total_entries_num(self) -> int: ...
     def last_error_code(self) -> int: ...
+
+
+class CanDecoder:
+    def load_db(self, messages: list[MessageDef], signals: list[SignalDef]) -> int: ...
+    def free_db(self) -> None: ...
+    def is_loaded(self) -> bool: ...
+    def decode_entry(self, entry: ParsedEntry, max_signals: int = 0) -> list[DecodedSignal]: ...

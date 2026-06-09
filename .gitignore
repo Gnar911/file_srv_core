@@ -8,3 +8,5 @@ src/module/*.so
 __pycache__/
 *.py[cod]
 src/module/__pycache__/
+
+*.DEPRECATED.py

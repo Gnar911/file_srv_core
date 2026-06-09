@@ -104,7 +104,6 @@ public:
 };
 
 }  // namespace file_service
-
 TEST(ParsedMmapInterfaceApi, WriterLifecycleAndApiSmokeCoverage) {
     const std::filesystem::path dir = make_test_temp_dir("parsed_mmap");
     const std::filesystem::path token_path = dir / "token_api";

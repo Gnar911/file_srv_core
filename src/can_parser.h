@@ -47,6 +47,10 @@ CP_EXPORT int32_t can_parser_parse_line(const char* line,
 
 CP_EXPORT void can_parser_free_entries(ParsedEntry* ptr);
 
+CP_EXPORT int32_t can_parser_run_worker_segmented(const char* file_path,
+											  const char* token_id,
+											  FormatType fmt);
+
 CP_EXPORT uint32_t fs_core_abi_version();
 
 #ifdef __cplusplus

@@ -21,25 +21,33 @@ endif()
 
 add_library(file_service_core SHARED
     can_parser.cpp
-    parsed_mmap.cpp
+    mmap/parsed_mmap.cpp
     mmap/mmap_data.cpp
     mmap/mmap_canid_idx.cpp
     mmap/mmap_chnl_idx.cpp
     mmap/mmap_dir_idx.cpp
     parsed_entry_layout.cpp
     can_decoder.cpp
-    can_log_decoder.cpp
+    sqlite/can_log_decoder.cpp
+    sqlite/sql_decode.cpp
     mmap/mmap_wrapper.cpp
     mmap/mmap_header_constract.cpp
 )
 
 target_include_directories(file_service_core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/mmap
 )
 
 if(NOT WIN32)
     find_package(Threads REQUIRED)
     target_link_libraries(file_service_core PRIVATE Threads::Threads)
+endif()
+
+if(UNIX AND EXISTS "/lib/x86_64-linux-gnu/libsqlite3.so.0")
+    target_link_libraries(file_service_core PRIVATE /lib/x86_64-linux-gnu/libsqlite3.so.0)
+else()
+    target_link_libraries(file_service_core PRIVATE sqlite3)
 endif()
 
 set_target_properties(file_service_core PROPERTIES
@@ -48,21 +56,25 @@ set_target_properties(file_service_core PROPERTIES
 
 find_package(pybind11 CONFIG REQUIRED)
 
-pybind11_add_module(parsed_mmap MODULE
-    parsed_mmap_pybind.cpp
+pybind11_add_module(file_srv_core MODULE WITHOUT_SOABI
+    pybind/parsed_mmap_pybind.cpp
+    pybind/can_parser_pybind.cpp
 )
 
-target_include_directories(parsed_mmap PRIVATE
+target_include_directories(file_srv_core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/mmap
+    ${CMAKE_CURRENT_SOURCE_DIR}/pybind
 )
 
 if(NOT WIN32)
-    target_link_libraries(parsed_mmap PRIVATE file_service_core Threads::Threads)
+    target_link_libraries(file_srv_core PRIVATE file_service_core Threads::Threads)
 else()
-    target_link_libraries(parsed_mmap PRIVATE file_service_core)
+    target_link_libraries(file_srv_core PRIVATE file_service_core)
 endif()
 
-set_target_properties(parsed_mmap PROPERTIES
+set_target_properties(file_srv_core PROPERTIES
+    OUTPUT_NAME fs_core
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
     BUILD_RPATH "$ORIGIN/.."
@@ -76,7 +88,10 @@ if(BUILD_TESTING)
 
     add_executable(file_service_core_tests
         tests/out_segments_path_test.cpp
-        parsed_mmap.cpp
+        can_decoder.cpp
+        sqlite/can_log_decoder.cpp
+        sqlite/sql_decode.cpp
+        mmap/parsed_mmap.cpp
         mmap/mmap_data.cpp
         mmap/mmap_canid_idx.cpp
         mmap/mmap_chnl_idx.cpp
@@ -90,9 +105,48 @@ if(BUILD_TESTING)
         GTest::gtest
     )
 
+    if(UNIX AND EXISTS "/lib/x86_64-linux-gnu/libsqlite3.so.0")
+        target_link_libraries(file_service_core_tests PRIVATE /lib/x86_64-linux-gnu/libsqlite3.so.0)
+    else()
+        target_link_libraries(file_service_core_tests PRIVATE sqlite3)
+    endif()
+
     target_include_directories(file_service_core_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/mmap
     )
 
     gtest_discover_tests(file_service_core_tests)
+
+    add_executable(test_decode_function
+        tests/test_decode_function.cpp
+        can_decoder.cpp
+        sqlite/can_log_decoder.cpp
+        sqlite/sql_decode.cpp
+        mmap/parsed_mmap.cpp
+        mmap/mmap_data.cpp
+        mmap/mmap_canid_idx.cpp
+        mmap/mmap_chnl_idx.cpp
+        mmap/mmap_dir_idx.cpp
+        parsed_entry_layout.cpp
+        mmap/mmap_wrapper.cpp
+        mmap/mmap_header_constract.cpp
+    )
+
+    target_link_libraries(test_decode_function PRIVATE
+        GTest::gtest
+    )
+
+    if(UNIX AND EXISTS "/lib/x86_64-linux-gnu/libsqlite3.so.0")
+        target_link_libraries(test_decode_function PRIVATE /lib/x86_64-linux-gnu/libsqlite3.so.0)
+    else()
+        target_link_libraries(test_decode_function PRIVATE sqlite3)
+    endif()
+
+    target_include_directories(test_decode_function PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/mmap
+    )
+
+    gtest_discover_tests(test_decode_function)
 endif()

@@ -53,6 +53,7 @@ public:
 	                                                              int64_t last);
 
 	uint64_t get_total_entries_num() const;
+	const std::string& token_path() const;
 	int32_t last_error_code() const;
 
 private:

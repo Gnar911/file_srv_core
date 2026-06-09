@@ -20,6 +20,7 @@
  */
 
 #include <cstdint>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -34,16 +35,11 @@
 #endif
 #endif
 
-std::vector<MessageDef> g_messages;
-std::vector<SignalDef> g_signals;
-std::unordered_map<uint32_t, uint32_t> g_canid_to_msg;
-bool g_db_loaded = false;
-
 // ═══════════════════════════════════════════════════════════════════════════
 // CAN signal bit extraction
 // ═══════════════════════════════════════════════════════════════════════════
 
-static inline int64_t extract_signal_le(const uint8_t* data, int data_len,
+inline int64_t extract_signal_le(const uint8_t* data, int data_len,
                                          int start_bit, int bit_length) {
     uint64_t raw = 0;
     for (int i = 0; i < bit_length; i++) {
@@ -56,7 +52,7 @@ static inline int64_t extract_signal_le(const uint8_t* data, int data_len,
     return static_cast<int64_t>(raw);
 }
 
-static inline int64_t extract_signal_be(const uint8_t* data, int data_len,
+inline int64_t extract_signal_be(const uint8_t* data, int data_len,
                                          int start_bit, int bit_length) {
     uint64_t raw = 0;
     int bp = start_bit;
@@ -73,7 +69,7 @@ static inline int64_t extract_signal_be(const uint8_t* data, int data_len,
     return static_cast<int64_t>(raw);
 }
 
-static inline int64_t sign_extend(int64_t raw, int bit_length) {
+inline int64_t sign_extend(int64_t raw, int bit_length) {
     if (bit_length > 0 && bit_length < 64) {
         uint64_t sign_mask = 1ULL << (bit_length - 1);
         if (static_cast<uint64_t>(raw) & sign_mask) {
@@ -97,82 +93,90 @@ int64_t extract_signal(const uint8_t* data, int data_len,
     return raw;
 }
 
-extern "C" {
+int32_t CanDecoder::load_db(const CanDatabaseModel& model) {
+    model_.messages = model.messages;
+    model_.signals = model.signals;
 
-CD_EXPORT int32_t can_decoder_load_db(const MessageDef* messages,
-                                      uint32_t msg_count,
-                                      const SignalDef* signals,
-                                      uint32_t sig_count) {
-    LOGGING_TRACE_ENABLED;
+    model_.canid_to_msg.clear();
+    if (!model.canid_to_msg.empty()) {
+        model_.canid_to_msg = model.canid_to_msg;
+    } else {
+        model_.canid_to_msg.reserve(model_.messages.size());
+        for (uint32_t i = 0; i < model_.messages.size(); i++) {
+            model_.canid_to_msg[model_.messages[i].can_id] = i;
+        }
+    }
 
-    if ((!messages && msg_count > 0) || (!signals && sig_count > 0))
-        return -1;
-
-    g_messages.assign(messages, messages + msg_count);
-    g_signals.assign(signals, signals + sig_count);
-
-    g_canid_to_msg.clear();
-    g_canid_to_msg.reserve(msg_count);
-    for (uint32_t i = 0; i < msg_count; i++)
-        g_canid_to_msg[g_messages[i].can_id] = i;
-
-    g_db_loaded = true;
-
-    CBCM_INFO("Decoder DB loaded: %u messages, %u signals (in C++ memory)",
-              msg_count, sig_count);
+    db_loaded_ = true;
     return 0;
 }
 
-CD_EXPORT void can_decoder_free_db() {
-    g_messages.clear();
-    g_messages.shrink_to_fit();
-    g_signals.clear();
-    g_signals.shrink_to_fit();
-    g_canid_to_msg.clear();
-    g_db_loaded = false;
-    CBCM_INFO("Decoder DB freed");
+void CanDecoder::free_db() {
+    model_.messages.clear();
+    model_.messages.shrink_to_fit();
+    model_.signals.clear();
+    model_.signals.shrink_to_fit();
+    model_.canid_to_msg.clear();
+    db_loaded_ = false;
 }
 
-/*
- * can_decoder_test_message
- *
- * Debug helper — decode a single CAN frame using the loaded DBC.
- * No mmap involved — caller provides data bytes directly.
- *
- *   can_id       : CAN arbitration ID
- *   data         : pointer to payload bytes
- *   data_len     : number of payload bytes
- *   out_raw      : output array of int64_t[max_signals]  (raw values)
- *   out_phys     : output array of double[max_signals]   (physical values)
- *   max_signals  : capacity of out_raw / out_phys
- *
- * Returns the number of signals decoded (≥ 0), or:
- *   -1  DB not loaded
- *   -2  can_id not found in DB
- */
-CD_EXPORT int32_t can_decoder_test_message(uint32_t       can_id,
-                                            const uint8_t* data,
-                                            uint8_t        data_len,
-                                            int64_t*       out_raw,
-                                            double*        out_phys,
-                                            uint32_t       max_signals) {
-    if (!g_db_loaded) return -1;
-    auto it = g_canid_to_msg.find(can_id);
-    if (it == g_canid_to_msg.end()) return -2;
+std::vector<DecodedSignal> CanDecoder::decode_entry(uint32_t can_id,
+                                                            const uint8_t* data,
+                                                            uint8_t data_len,
+                                                            uint32_t max_signals) const {
+    std::vector<DecodedSignal> decoded;
 
-    const MessageDef& msg = g_messages[it->second];
-    const int dl = static_cast<int>(data_len);
-    const uint32_t n = (msg.signal_count < max_signals)
-                       ? msg.signal_count : max_signals;
-
-    for (uint32_t si = 0; si < n; si++) {
-        const SignalDef& sig = g_signals[msg.signal_offset + si];
-        int64_t raw  = extract_signal(data, dl, sig);
-        double  phys = static_cast<double>(raw) * sig.scale + sig.offset;
-        out_raw[si]  = raw;
-        out_phys[si] = phys;
+    if (!db_loaded_) {
+        return decoded;
     }
-    return static_cast<int32_t>(msg.signal_count);
+
+    auto it = model_.canid_to_msg.find(can_id);
+    if (it == model_.canid_to_msg.end()) {
+        return decoded;
+    }
+
+    const MessageDef& msg = model_.messages[it->second];
+    const int dl = static_cast<int>(data_len);
+    const uint32_t n = (max_signals == 0)
+        ? static_cast<uint32_t>(msg.signal_count)
+        : ((msg.signal_count < max_signals) ? msg.signal_count : max_signals);
+
+    decoded.reserve(n);
+    for (uint32_t si = 0; si < n; si++) {
+        const SignalDef& sig = model_.signals[msg.signal_offset + si];
+        const int64_t raw = extract_signal(data, dl, sig);
+        const double phys = static_cast<double>(raw) * sig.scale + sig.offset;
+
+        DecodedSignal out;
+        out.signal_name = std::string("signal_") + std::to_string(si);
+        out.raw_value = raw;
+        out.phys_value = phys;
+        decoded.push_back(out);
+    }
+
+    return decoded;
 }
 
-} /* extern "C" */
+std::vector<DecodedSignal> CanDecoder::decode_entry(const ParsedEntry& entry,
+                                                            uint32_t max_signals) const {
+    return decode_entry(entry.can_id,
+                        entry.data,
+                        entry.data_len,
+                        max_signals);
+}
+
+bool CanDecoder::is_loaded() const {
+    return db_loaded_;
+}
+
+const std::vector<MessageDef>& CanDecoder::messages() const {
+    return model_.messages;
+}
+
+const std::vector<SignalDef>& CanDecoder::signals() const {
+    return model_.signals;
+}
+
+const std::unordered_map<uint32_t, uint32_t>& CanDecoder::canid_to_msg() const {
+    return model_.canid_to_msg;
+}

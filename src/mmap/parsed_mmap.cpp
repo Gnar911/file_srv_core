@@ -161,6 +161,10 @@ uint64_t ParsedMmapInterface::get_total_entries_num() const {
     return total_rows;
 }
 
+const std::string& ParsedMmapInterface::token_path() const {
+    return token_id_;
+}
+
 std::vector<ParsedEntry> ParsedMmapInterface::read_rows_from_data(const std::vector<uint64_t>& rows) const {
     clear_last_error();
     if (rows.empty()) {

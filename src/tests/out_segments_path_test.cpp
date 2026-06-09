@@ -2,17 +2,60 @@
 
 #include <cstdio>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <vector>
 #include <cstdlib>
 #include <iostream>
 
+#include "can_decoder.h"
+#include "can_log_decoder.h"
 #include "parsed_entry_layout.h"
 #include "parsed_mmap_if.h"
+#include "sqlite/sql_decode_if.h"
 
 namespace {
 std::string g_token_path;
+
+std::filesystem::path make_test_temp_dir(const std::string& name) {
+    const auto dir = std::filesystem::temp_directory_path() / ("file_service_core_" + name);
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    return dir;
+}
+
+void cleanup_prefix_files(const std::filesystem::path& dir, const std::string& prefix) {
+    std::error_code ec;
+    if (!std::filesystem::exists(dir, ec)) {
+        return;
+    }
+
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (ec || !entry.is_regular_file()) {
+            continue;
+        }
+
+        const std::string name = entry.path().filename().string();
+        if (name.rfind(prefix, 0) == 0) {
+            std::filesystem::remove(entry.path(), ec);
+        }
+    }
+}
+
+ParsedEntry make_entry(uint32_t line, uint32_t can_id, uint8_t b0) {
+    ParsedEntry e{};
+    e.line_number = line;
+    e.timestamp = static_cast<double>(line);
+    e.last_timestamp = static_cast<double>(line);
+    e.can_id = can_id;
+    e.direction = 0;
+    e.data_len = 1;
+    e.changed = 0;
+    e.data[0] = b0;
+    std::snprintf(e.channel, sizeof(e.channel), "%s", "ch0");
+    return e;
+}
 }  // namespace
 
 namespace file_service {
@@ -105,6 +148,133 @@ TEST(ParsedMmapInterfaceApi, SegmentDiscovery) {
     EXPECT_GT(write_count, 0U);
     std::cout << "[SegmentDiscovery] first_segment_capacity=" << capacity << "\n";
     std::cout << "[SegmentDiscovery] first_segment_write_count=" << static_cast<unsigned long long>(write_count) << "\n";
+}
+
+TEST(CanDecoderApiMock, DecodeEntryUsesTextSignalName) {
+    CanDecoder decoder;
+    decoder.free_db();
+
+    MessageDef msg{};
+    msg.can_id = 0x123;
+    msg.signal_count = 1;
+    msg.msg_length = 8;
+    msg.signal_offset = 0;
+
+    SignalDef sig{};
+    sig.start_bit = 0;
+    sig.bit_length = 8;
+    sig.byte_order = 0;
+    sig.is_signed = 0;
+    sig.has_choices = 0;
+    sig.scale = 1.0;
+    sig.offset = 0.0;
+
+    CanDatabaseModel model{};
+    model.messages.push_back(msg);
+    model.signals.push_back(sig);
+    model.canid_to_msg[msg.can_id] = 0;
+    ASSERT_EQ(decoder.load_db(model), 0);
+
+    ParsedEntry entry{};
+    entry.can_id = 0x123;
+    entry.data_len = 1;
+    entry.data[0] = 0x2A;
+    std::snprintf(entry.channel, sizeof(entry.channel), "%s", "ch0");
+
+    const auto decoded = decoder.decode_entry(entry);
+    ASSERT_EQ(decoded.size(), 1U);
+    EXPECT_EQ(decoded[0].signal_name, "signal_0");
+    EXPECT_EQ(decoded[0].raw_value, 42);
+    EXPECT_DOUBLE_EQ(decoded[0].phys_value, 42.0);
+
+    decoder.free_db();
+}
+
+TEST(CanDecoderApiMock, RunDecodeSmokeWritesSqliteData) {
+    const std::filesystem::path dir = make_test_temp_dir("run_decode_smoke");
+    const std::filesystem::path token_path = dir / "token_run_decode";
+
+    file_service::ParsedMmapInterface parsed(token_path.string());
+    ASSERT_EQ(parsed.open_mmap(), 0);
+
+    std::vector<ParsedEntry> entries;
+    entries.push_back(make_entry(1, 0x321, 10));
+    entries.push_back(make_entry(2, 0x321, 10));
+    entries.push_back(make_entry(3, 0x321, 20));
+
+    ASSERT_EQ(parsed.write_entries(entries), 0);
+    parsed.close_mmap();
+
+    CanDecoder decoder;
+    decoder.free_db();
+
+    MessageDef msg{};
+    msg.can_id = 0x321;
+    msg.signal_count = 1;
+    msg.msg_length = 8;
+    msg.signal_offset = 0;
+
+    SignalDef sig{};
+    sig.start_bit = 0;
+    sig.bit_length = 8;
+    sig.byte_order = 0;
+    sig.is_signed = 0;
+    sig.scale = 1.0;
+    sig.offset = 0.0;
+
+    CanDatabaseModel model{};
+    model.messages.push_back(msg);
+    model.signals.push_back(sig);
+    model.canid_to_msg[msg.can_id] = 0;
+    ASSERT_EQ(decoder.load_db(model), 0);
+    ASSERT_EQ(can_decoder_run(token_path.string().c_str(), decoder), 0);
+
+    const std::filesystem::path db_path = token_path.string() + ".decoded.sqlite";
+    EXPECT_TRUE(std::filesystem::exists(db_path));
+    EXPECT_GT(std::filesystem::file_size(db_path), 0U);
+
+    DecodedSignalDatabase db(token_path.string());
+    ASSERT_EQ(db.open(), 0);
+
+    const auto names = db.get_signal_names(0x321);
+    ASSERT_EQ(names.size(), 1U);
+    EXPECT_EQ(names[0], "signal_0");
+
+    const auto chunk = db.get_signal_samples(0x321, "signal_0");
+    ASSERT_EQ(chunk.row_index.size(), 3U);
+    ASSERT_EQ(chunk.raw_value.size(), 3U);
+    ASSERT_EQ(chunk.phys_value.size(), 3U);
+    ASSERT_EQ(chunk.changed_row_index.size(), 1U);
+
+    EXPECT_EQ(chunk.row_index[0], 0U);
+    EXPECT_EQ(chunk.row_index[1], 1U);
+    EXPECT_EQ(chunk.row_index[2], 2U);
+    EXPECT_EQ(chunk.raw_value[0], 10);
+    EXPECT_EQ(chunk.raw_value[1], 10);
+    EXPECT_EQ(chunk.raw_value[2], 20);
+    EXPECT_DOUBLE_EQ(chunk.phys_value[0], 10.0);
+    EXPECT_DOUBLE_EQ(chunk.phys_value[1], 10.0);
+    EXPECT_DOUBLE_EQ(chunk.phys_value[2], 20.0);
+    EXPECT_EQ(chunk.changed_row_index[0], 2U);
+
+    db.close();
+    decoder.free_db();
+    cleanup_prefix_files(dir, token_path.filename().string());
+}
+
+TEST(DecodedSqliteApi, DatabaseFileDiscoveryByTokenPath) {
+    if (g_token_path.empty()) {
+        GTEST_SKIP() << "--token_path not provided";
+    }
+
+    const std::filesystem::path token_path = g_token_path;
+    const std::filesystem::path db_path = token_path.string() + ".decoded.sqlite";
+    EXPECT_TRUE(std::filesystem::exists(db_path));
+    EXPECT_GT(std::filesystem::file_size(db_path), 0U);
+
+    DecodedSignalDatabase db(token_path.string());
+    ASSERT_EQ(db.open(), 0);
+    db.close();
 }
 
 int main(int argc, char** argv) {
