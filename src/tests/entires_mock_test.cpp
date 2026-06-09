@@ -181,7 +181,7 @@ TEST(ParsedMmapInterfaceApi, SegmentDiscovery) {
         std::cout << "[SegmentDiscovery] direction_segment=" << p << "\n";
     }
 
-    const uint64_t total_entries = iface.get_total_entries_num();
+    const uint64_t total_entries = iface.fetch_count();
     EXPECT_GT(total_entries, 0U);
     std::cout << "[SegmentDiscovery] total_entries=" << static_cast<unsigned long long>(total_entries) << "\n";
 

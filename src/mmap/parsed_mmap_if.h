@@ -52,7 +52,7 @@ public:
 	                                                              int64_t first,
 	                                                              int64_t last);
 
-	uint64_t get_total_entries_num() const;
+	uint64_t fetch_count() const;
 	const std::string& token_path() const;
 	int32_t last_error_code() const;
 

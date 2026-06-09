@@ -95,7 +95,7 @@ DecodeError can_decoder_run(const file_service::ParsedMmapInterface& parsed_mmap
         return make_decode_error(-3, "can_decoder_run: DB not loaded - call can_decoder_load_db first");
     }
 
-    const uint64_t entry_count = parsed_mmap.get_total_entries_num();
+    const uint64_t entry_count = parsed_mmap.fetch_count();
     if (entry_count == 0) {
         CBCM_ERROR("No parsed mmap data found (last_error=%d)", parsed_mmap.last_error_code());
         return make_decode_error(-2, "No parsed mmap data found");

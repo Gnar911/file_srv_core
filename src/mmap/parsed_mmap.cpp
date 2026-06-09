@@ -149,13 +149,13 @@ void ParsedMmapInterface::close_mmap() {
     CBCM_TRACE("ParsedMmapInterface::close_mmap exit token=%s", token_id_.c_str());
 }
 
-uint64_t ParsedMmapInterface::get_total_entries_num() const {
+uint64_t ParsedMmapInterface::fetch_count() const {
     clear_last_error();
     uint64_t total_rows = 0;
     const int32_t rc = data_.read_total_rows(total_rows);
     if (rc != 0) {
         last_error_code_ = rc;
-        CBCM_ERROR("ParsedMmapInterface::get_total_entries_num read_total_rows failed rc=%d", rc);
+        CBCM_ERROR("ParsedMmapInterface::fetch_count read_total_rows failed rc=%d", rc);
         return 0;
     }
     return total_rows;

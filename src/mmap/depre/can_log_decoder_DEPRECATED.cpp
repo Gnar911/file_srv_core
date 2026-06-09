@@ -51,7 +51,7 @@ int32_t can_decoder_run(file_service::ParsedMmapInterface& parsed_mmap) {
     const uint32_t    msg_count = static_cast<uint32_t>(messages.size());
     const uint32_t    total_sigs = static_cast<uint32_t>(signals.size());
 
-    const uint64_t entry_count = parsed_mmap.get_total_entries_num();
+    const uint64_t entry_count = parsed_mmap.fetch_count();
     if (entry_count == 0) {
         CBCM_ERROR("No parsed mmap data found (last_error=%d)", parsed_mmap.last_error_code());
         return -2;
