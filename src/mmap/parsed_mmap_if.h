@@ -51,6 +51,8 @@ public:
 	std::vector<ParsedEntry> read_page_from_directions(const std::vector<std::string>& directions,
 	                                                              int64_t first,
 	                                                              int64_t last);
+	int32_t get_first_last_timestamp(double& out_first_ts,
+	                                 double& out_last_ts) const;
 
 	uint64_t fetch_count() const;
 	const std::string& token_path() const;

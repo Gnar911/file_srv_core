@@ -159,6 +159,33 @@ int32_t DataMmapInterface::read_entries(const std::vector<uint64_t>& rows,
     return file_service::mmap::error_code::kOk;
 }
 
+int32_t DataMmapInterface::read_first_last_timestamp(double& out_first_ts,
+                                                     double& out_last_ts) const {
+    out_first_ts = 0.0;
+    out_last_ts = 0.0;
+
+    uint64_t total_rows = 0;
+    const int32_t total_rc = read_total_rows(total_rows);
+    if (total_rc != 0) {
+        return total_rc;
+    }
+    if (total_rows == 0) {
+        return file_service::mmap::error_code::kReadRowsNoData;
+    }
+
+    const int32_t first_rc = read_timestamp(0, out_first_ts);
+    if (first_rc != 0) {
+        return first_rc;
+    }
+
+    const int32_t last_rc = read_timestamp(total_rows - 1, out_last_ts);
+    if (last_rc != 0) {
+        return last_rc;
+    }
+
+    return file_service::mmap::error_code::kOk;
+}
+
 uint64_t DataMmapInterface::timestamp_lower_bound(uint64_t total_rows,
                                                 double target_ts) const {
     uint64_t lo = 0;

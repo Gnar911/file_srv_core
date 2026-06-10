@@ -161,6 +161,18 @@ uint64_t ParsedMmapInterface::fetch_count() const {
     return total_rows;
 }
 
+int32_t ParsedMmapInterface::get_first_last_timestamp(double& out_first_ts,
+                                                      double& out_last_ts) const {
+    clear_last_error();
+    const int32_t rc = data_.read_first_last_timestamp(out_first_ts, out_last_ts);
+    if (rc != 0) {
+        last_error_code_ = rc;
+        CBCM_ERROR("ParsedMmapInterface::get_first_last_timestamp failed rc=%d", rc);
+        return rc;
+    }
+    return 0;
+}
+
 const std::string& ParsedMmapInterface::token_path() const {
     return token_id_;
 }

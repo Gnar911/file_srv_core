@@ -33,12 +33,13 @@ public:
                        ParsedEntry& out_entry) const;
     int32_t read_entries(const std::vector<uint64_t>& rows,
                          std::vector<ParsedEntry>& out_entries) const;
+    int32_t read_first_last_timestamp(double& out_first_ts,
+                                      double& out_last_ts) const;
     uint64_t timestamp_lower_bound(uint64_t total_rows,
                                    double target_ts) const;
     uint64_t timestamp_upper_bound(uint64_t total_rows,
                                    double target_ts) const;
-    int32_t read_timestamp(uint64_t global_row,
-                           double& out_ts) const;
+    int32_t read_timestamp(uint64_t global_row, double& out_ts) const;
     int32_t read_total_rows(uint64_t& out_total_rows) const;
     int32_t read_segment_write_count(const std::string& segment_path,
                                      uint64_t& out_count) const;

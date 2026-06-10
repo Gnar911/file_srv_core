@@ -143,6 +143,15 @@ PYBIND11_MODULE(fs_core, m) {
              py::arg("direction"), py::arg("first"), py::arg("last"))
         .def("read_page_from_directions", &file_service::ParsedMmapInterface::read_page_from_directions,
              py::arg("directions"), py::arg("first"), py::arg("last"))
-                .def("fetch_count", &file_service::ParsedMmapInterface::fetch_count)
+        .def("get_first_last_timestamp", [](const file_service::ParsedMmapInterface& self) -> py::tuple {
+             double first_ts = 0.0;
+             double last_ts = 0.0;
+             const int32_t rc = self.get_first_last_timestamp(first_ts, last_ts);
+             if (rc != 0) {
+                  return py::make_tuple(py::none(), py::none());
+             }
+             return py::make_tuple(py::float_(first_ts), py::float_(last_ts));
+         })
+        .def("fetch_count", &file_service::ParsedMmapInterface::fetch_count)
      .def("last_error_code", &file_service::ParsedMmapInterface::last_error_code);
 }
