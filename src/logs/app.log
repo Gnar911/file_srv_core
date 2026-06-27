@@ -1,0 +1,8 @@
+2026-06-27 22:48:19 file_service.py on_parser_callback 378 INFO Parser finished with DONE for record_id=e6214353d78e4450b96f01d2e827bb83
+2026-06-27 22:48:19 file_srv_psr_UT.py _on_parser_status 95 INFO parser_status_event status=DONE record_id=e6214353d78e4450b96f01d2e827bb83 payload={'record_id': RecordId(value=UUID('e6214353-d78e-4450-b96f-01d2e827bb83')), 'status': 2, 'message': 'parser worker completed'}
+2026-06-27 22:50:45 file_service.py on_parser_callback 378 INFO Parser finished with DONE for record_id=18c9909e468041a2a1b8675356dbca89
+2026-06-27 22:50:45 file_srv_psr_UT.py _on_parser_status 95 INFO parser_status_event status=DONE record_id=18c9909e468041a2a1b8675356dbca89 payload={'record_id': RecordId(value=UUID('18c9909e-4680-41a2-a1b8-675356dbca89')), 'status': 2, 'message': 'parser worker completed'}
+2026-06-27 22:50:45 file_srv_psr_UT.py test_05_parse_log_with_record_id 153 DEBUG get_all_entries: 0.020447704009711742
+2026-06-27 22:50:51 file_service.py on_parser_callback 378 INFO Parser finished with DONE for record_id=2d592383a64b47a08b3a91e37473b1bd
+2026-06-27 22:50:51 file_srv_psr_UT.py _on_parser_status 95 INFO parser_status_event status=DONE record_id=2d592383a64b47a08b3a91e37473b1bd payload={'record_id': RecordId(value=UUID('2d592383-a64b-47a0-8b3a-91e37473b1bd')), 'status': 2, 'message': 'parser worker completed'}
+2026-06-27 22:50:51 file_srv_psr_UT.py test_05_parse_log_with_record_id 153 DEBUG get_all_entries: 0.02150045894086361

@@ -30,6 +30,7 @@ public:
 	std::vector<ParsedEntry> read_page_from_can_id(uint32_t can_id,
 	                                                          int64_t first,
 	                                                          int64_t last);
+	std::vector<ParsedEntry> read_all_entries() const;
 	std::vector<ParsedEntry> read_page_from_can_ids(const std::vector<uint32_t>& can_ids,
 	                                                           int64_t first,
 	                                                           int64_t last);

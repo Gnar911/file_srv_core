@@ -33,6 +33,7 @@ public:
                        ParsedEntry& out_entry) const;
     int32_t read_entries(const std::vector<uint64_t>& rows,
                          std::vector<ParsedEntry>& out_entries) const;
+    int32_t read_all_entries(std::vector<ParsedEntry>& out_entries) const;
     int32_t read_first_last_timestamp(double& out_first_ts,
                                       double& out_last_ts) const;
     uint64_t timestamp_lower_bound(uint64_t total_rows,
@@ -85,6 +86,8 @@ private:
     int32_t read_entry_from_segment(uint32_t seg_idx,
                                     uint64_t target_idx,
                                     ParsedEntry& out_entry) const;
+    int32_t append_segment_entries(uint32_t seg_idx,
+                                   std::vector<ParsedEntry>& out_entries) const;
     bool open_segment(uint32_t index);
 
     static constexpr uint32_t kDataSegmentCapacity = 1'000'000;

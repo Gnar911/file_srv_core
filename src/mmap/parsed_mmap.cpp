@@ -177,6 +177,18 @@ const std::string& ParsedMmapInterface::token_path() const {
     return token_id_;
 }
 
+std::vector<ParsedEntry> ParsedMmapInterface::read_all_entries() const {
+    clear_last_error();
+    std::vector<ParsedEntry> entries;
+    const int32_t rc = data_.read_all_entries(entries);
+    if (rc != 0) {
+        last_error_code_ = rc;
+        CBCM_ERROR("ParsedMmapInterface::read_all_entries failed rc=%d", rc);
+        return {};
+    }
+    return entries;
+}
+
 std::vector<ParsedEntry> ParsedMmapInterface::read_rows_from_data(const std::vector<uint64_t>& rows) const {
     clear_last_error();
     if (rows.empty()) {

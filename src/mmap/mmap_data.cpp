@@ -159,6 +159,57 @@ int32_t DataMmapInterface::read_entries(const std::vector<uint64_t>& rows,
     return file_service::mmap::error_code::kOk;
 }
 
+int32_t DataMmapInterface::read_all_entries(
+    std::vector<ParsedEntry>& out_entries) const
+{
+    out_entries.clear();
+
+    uint32_t segment_count;
+    uint32_t mmap_capacity;
+
+    int32_t rc = read_header_metadata(segment_count, mmap_capacity);
+    if (rc != 0)
+        return rc;
+
+    for (uint32_t seg = 0; seg < segment_count; ++seg)
+    {
+        rc = append_segment_entries(seg, out_entries);
+        if (rc != 0)
+            return rc;
+    }
+
+    return file_service::mmap::error_code::kOk;
+}
+
+int32_t DataMmapInterface::append_segment_entries(
+    uint32_t seg_idx,
+    std::vector<ParsedEntry>& out_entries) const
+{
+    const std::string path = make_segment_family_path("", seg_idx);
+
+    MMapHandle handle{};
+    if (!mmap_open_ro(path.c_str(), handle))
+        return file_service::mmap::error_code::kMmapOpenFailed;
+
+    auto* hdr =
+        reinterpret_cast<const file_service::MmapHeaderConstract*>(handle.addr);
+
+    auto* entries =
+        reinterpret_cast<const ParsedEntry*>(
+            reinterpret_cast<const uint8_t*>(handle.addr)
+            + file_service::kMmapHeaderConstractSize);
+
+    out_entries.insert(
+        out_entries.end(),
+        entries,
+        entries + hdr->write_count);      // or hdr->size / valid_count
+                                          // whatever represents valid entries
+
+    mmap_close(handle);
+
+    return file_service::mmap::error_code::kOk;
+}
+
 int32_t DataMmapInterface::read_first_last_timestamp(double& out_first_ts,
                                                      double& out_last_ts) const {
     out_first_ts = 0.0;
