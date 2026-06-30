@@ -157,7 +157,7 @@ std::vector<DecodedSignal> CanDecoder::decode_entry(uint32_t can_id,
     return decoded;
 }
 
-std::vector<DecodedSignal> CanDecoder::decode_entry(const ParsedEntry& entry,
+std::vector<DecodedSignal> CanDecoder::decode_entry(const LogRecord& entry,
                                                             uint32_t max_signals) const {
     return decode_entry(entry.can_id,
                         entry.data,

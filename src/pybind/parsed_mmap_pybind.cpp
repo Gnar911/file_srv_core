@@ -20,21 +20,18 @@ PYBIND11_MODULE(fs_core, m) {
           return fs_core_abi_version();
      });
 
-    py::class_<ParsedEntry>(m, "ParsedEntry")
+    py::class_<LogRecord>(m, "LogRecord")
         .def(py::init<>())
-        .def_readwrite("line_number", &ParsedEntry::line_number)
-        .def_readwrite("timestamp", &ParsedEntry::timestamp)
-        .def_readwrite("last_timestamp", &ParsedEntry::last_timestamp)
-        .def_readwrite("can_id", &ParsedEntry::can_id)
-        .def_readwrite("direction", &ParsedEntry::direction)
-        .def_readwrite("data_len", &ParsedEntry::data_len)
-        .def_readwrite("changed", &ParsedEntry::changed)
+        .def_readwrite("timestamp", &LogRecord::timestamp)
+        .def_readwrite("can_id", &LogRecord::can_id)
+        .def_readwrite("direction", &LogRecord::direction)
+        .def_readwrite("data_len", &LogRecord::data_len)
         .def_property("data",
-               [](const ParsedEntry& entry) {
+               [](const LogRecord& entry) {
                     std::vector<uint8_t> out(std::begin(entry.data), std::end(entry.data));
                     return out;
                },
-               [](ParsedEntry& entry, const std::vector<uint8_t>& value) {
+               [](LogRecord& entry, const std::vector<uint8_t>& value) {
                     std::memset(entry.data, 0, sizeof(entry.data));
                     const size_t n = value.size() < sizeof(entry.data) ? value.size() : sizeof(entry.data);
                     for (size_t i = 0; i < n; ++i) {
@@ -43,15 +40,21 @@ PYBIND11_MODULE(fs_core, m) {
                }
           )
         .def_property("channel",
-               [](const ParsedEntry& entry) {
+               [](const LogRecord& entry) {
                     const size_t n = strnlen(entry.channel, sizeof(entry.channel));
                     return std::string(entry.channel, n);
                },
-               [](ParsedEntry& entry, const std::string& value) {
+               [](LogRecord& entry, const std::string& value) {
                     std::memset(entry.channel, 0, sizeof(entry.channel));
                     std::strncpy(entry.channel, value.c_str(), sizeof(entry.channel) - 1);
                }
           );
+
+    py::class_<ParsedEntry, LogRecord>(m, "ParsedEntry")
+        .def(py::init<>())
+        .def_readwrite("line_number", &ParsedEntry::line_number)
+        .def_readwrite("last_timestamp", &ParsedEntry::last_timestamp)
+        .def_readwrite("changed", &ParsedEntry::changed);
 
      bind_can_parser(m);
 
@@ -112,8 +115,8 @@ PYBIND11_MODULE(fs_core, m) {
           py::arg("signals"))
           .def("free_db", &CanDecoder::free_db)
           .def("is_loaded", &CanDecoder::is_loaded)
-          .def("decode_entry", py::overload_cast<const ParsedEntry&, uint32_t>(&CanDecoder::decode_entry, py::const_),
-                py::arg("entry"), py::arg("max_signals") = 0);
+              .def("decode_entry", py::overload_cast<const LogRecord&, uint32_t>(&CanDecoder::decode_entry, py::const_),
+                   py::arg("entry"), py::arg("max_signals") = 0);
 
      m.def("can_decoder_run", [](const std::string& parsed_mmap_token, const CanDecoder& decoder) {
           return ::can_decoder_run(parsed_mmap_token.c_str(), decoder);

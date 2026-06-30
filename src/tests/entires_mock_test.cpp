@@ -39,15 +39,13 @@ void cleanup_prefix_files(const std::filesystem::path& dir, const std::string& p
     }
 }
 
-ParsedEntry make_entry(uint32_t line, uint32_t can_id, double ts, const char* channel) {
-    ParsedEntry e{};
-    e.line_number = line;
+LogRecord make_entry(uint32_t line, uint32_t can_id, double ts, const char* channel) {
+    (void)line;
+    LogRecord e{};
     e.timestamp = ts;
-    e.last_timestamp = ts;
     e.can_id = can_id;
     e.direction = 0;
     e.data_len = 2;
-    e.changed = 0;
     e.data[0] = 0x12;
     e.data[1] = 0x34;
     std::snprintf(e.channel, sizeof(e.channel), "%s", channel);
@@ -110,7 +108,7 @@ TEST(ParsedMmapInterfaceApi, WriterLifecycleAndApiSmokeCoverage) {
 
     file_service::ParsedMmapInterface iface(token_path.string());
 
-    std::vector<ParsedEntry> entries;
+    std::vector<LogRecord> entries;
     entries.push_back(make_entry(1, 0x100, 1.0, "ch0"));
     entries.push_back(make_entry(2, 0x100, 2.0, "ch0"));
     entries.push_back(make_entry(3, 0x200, 3.0, "ch1"));

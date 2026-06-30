@@ -52,7 +52,7 @@ public:
     bool is_ready() const;
 
     int32_t open_and_init();
-    int32_t write_entries(const std::vector<ParsedEntry>& parsed_entries,
+    int32_t write_entries(const std::vector<LogRecord>& entries,
                           IndexBuckets& buckets);
     void close_and_finalize();
 
@@ -95,7 +95,7 @@ private:
     uint32_t seg_idx_ = 0;
     MMapHandle seg_handle_ = {};
     file_service::MmapHeaderConstract* seg_hdr_ = nullptr;
-    ParsedEntry* seg_entries_ = nullptr;
+    LogRecord* seg_entries_ = nullptr;
     uint64_t seg_write_ = 0;
     uint32_t global_row_idx_ = 0;
     uint64_t total_written_ = 0;

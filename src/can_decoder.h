@@ -53,7 +53,7 @@ class CanDecoder {
 public:
     int32_t load_db(const CanDatabaseModel& model);
     void free_db();
-    std::vector<DecodedSignal> decode_entry(const ParsedEntry& entry,
+    std::vector<DecodedSignal> decode_entry(const LogRecord& entry,
                                             uint32_t max_signals = 0) const;
 
     bool is_loaded() const;

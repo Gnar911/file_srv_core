@@ -428,7 +428,15 @@ CP_EXPORT int32_t can_parser_run_worker_segmented(const char* file_path,
         return rc;
     }
 
-    rc = handler.write_entries(parsed_entries);
+    std::vector<LogRecord> storage_entries;
+    storage_entries.reserve(parsed_entries.size());
+    for (const ParsedEntry& entry : parsed_entries) {
+        LogRecord out{};
+        static_cast<LogRecord&>(out) = static_cast<const LogRecord&>(entry);
+        storage_entries.push_back(out);
+    }
+
+    rc = handler.write_entries(storage_entries);
     if (rc != 0) {
         handler.close_mmap();
         mmap_close(in_handle);

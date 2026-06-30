@@ -26,7 +26,6 @@ add_library(file_service_core SHARED
     mmap/mmap_canid_idx.cpp
     mmap/mmap_chnl_idx.cpp
     mmap/mmap_dir_idx.cpp
-    parsed_entry_layout.cpp
     can_decoder.cpp
     sqlite/can_log_decoder.cpp
     sqlite/sql_decode.cpp
@@ -73,12 +72,16 @@ else()
     target_link_libraries(file_srv_core PRIVATE file_service_core)
 endif()
 
+## Allow overriding the pybind output directory so the module can be built
+## directly into the file_service package module directory.
+set(PYBIND_OUTPUT_DIR "/home/gnar911/Desktop/20260516_JOBS_INSPECTOR/project/file_service/src/file_service/module" CACHE PATH "pybind output dir")
+
 set_target_properties(file_srv_core PROPERTIES
     OUTPUT_NAME fs_core
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
     BUILD_RPATH "$ORIGIN/.."
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/module
+    LIBRARY_OUTPUT_DIRECTORY ${PYBIND_OUTPUT_DIR}
 )
 
 include(CTest)
@@ -96,7 +99,6 @@ if(BUILD_TESTING)
         mmap/mmap_canid_idx.cpp
         mmap/mmap_chnl_idx.cpp
         mmap/mmap_dir_idx.cpp
-        parsed_entry_layout.cpp
         mmap/mmap_wrapper.cpp
         mmap/mmap_header_constract.cpp
     )
@@ -128,7 +130,7 @@ if(BUILD_TESTING)
         mmap/mmap_canid_idx.cpp
         mmap/mmap_chnl_idx.cpp
         mmap/mmap_dir_idx.cpp
-        parsed_entry_layout.cpp
+        #parsed_entry_layout.cpp
         mmap/mmap_wrapper.cpp
         mmap/mmap_header_constract.cpp
     )

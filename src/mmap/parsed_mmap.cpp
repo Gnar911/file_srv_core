@@ -100,7 +100,7 @@ int32_t ParsedMmapInterface::open_mmap() {
     return 0;
 }
 
-int32_t ParsedMmapInterface::write_entries(const std::vector<ParsedEntry>& parsed_entries) {
+int32_t ParsedMmapInterface::write_entries(const std::vector<LogRecord>& entries) {
     clear_last_error();
     if (!is_segment_writers_ready()) {
         last_error_code_ = file_service::mmap::error_code::kWriterNotReady;
@@ -108,7 +108,7 @@ int32_t ParsedMmapInterface::write_entries(const std::vector<ParsedEntry>& parse
         return file_service::mmap::error_code::kWriterNotReady;
     }
 
-    int32_t rc = data_.write_entries(parsed_entries, buckets_);
+    int32_t rc = data_.write_entries(entries, buckets_);
     if (rc != 0) {
         last_error_code_ = rc;
         CBCM_ERROR("ParsedMmapInterface::write_entries data write failed rc=%d", rc);

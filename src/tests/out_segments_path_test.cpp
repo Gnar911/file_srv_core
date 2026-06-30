@@ -43,15 +43,12 @@ void cleanup_prefix_files(const std::filesystem::path& dir, const std::string& p
     }
 }
 
-ParsedEntry make_entry(uint32_t line, uint32_t can_id, uint8_t b0) {
-    ParsedEntry e{};
-    e.line_number = line;
+LogRecord make_entry(uint32_t line, uint32_t can_id, uint8_t b0) {
+    LogRecord e{};
     e.timestamp = static_cast<double>(line);
-    e.last_timestamp = static_cast<double>(line);
     e.can_id = can_id;
     e.direction = 0;
     e.data_len = 1;
-    e.changed = 0;
     e.data[0] = b0;
     std::snprintf(e.channel, sizeof(e.channel), "%s", "ch0");
     return e;
@@ -197,7 +194,7 @@ TEST(CanDecoderApiMock, RunDecodeSmokeWritesSqliteData) {
     file_service::ParsedMmapInterface parsed(token_path.string());
     ASSERT_EQ(parsed.open_mmap(), 0);
 
-    std::vector<ParsedEntry> entries;
+    std::vector<LogRecord> entries;
     entries.push_back(make_entry(1, 0x321, 10));
     entries.push_back(make_entry(2, 0x321, 10));
     entries.push_back(make_entry(3, 0x321, 20));
@@ -227,7 +224,7 @@ TEST(CanDecoderApiMock, RunDecodeSmokeWritesSqliteData) {
     model.signals.push_back(sig);
     model.canid_to_msg[msg.can_id] = 0;
     ASSERT_EQ(decoder.load_db(model), 0);
-    ASSERT_EQ(can_decoder_run(token_path.string().c_str(), decoder), 0);
+    ASSERT_EQ(can_decoder_run(token_path.string().c_str(), decoder).rc, 0);
 
     const std::filesystem::path db_path = token_path.string() + ".decoded.sqlite";
     EXPECT_TRUE(std::filesystem::exists(db_path));

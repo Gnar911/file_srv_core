@@ -24,8 +24,17 @@ public:
 	explicit ParsedMmapInterface(std::string token_id);
 
 	int32_t open_mmap();
-	int32_t write_entries(const std::vector<ParsedEntry>& parsed_entries);
+	int32_t write_entries(const std::vector<LogRecord>& entries);
 	void close_mmap();
+
+	// Would only return std::vector<ParsedEntry> if you have to allocate new objects.
+	// Since your ParsedEntry already lives inside the mapped file:
+	// seg_entries_[i]
+	// There is no reason to copy them into a vector std::vector<LogRecord>.
+	// std::span is great inside C++, but Python doesn't have a native concept of std::span.
+	// Internally pybind11 converts the Python list into
+	// std::vector<ParsedEntry>
+	// before calling C++.
 	std::vector<ParsedEntry> read_page(int64_t first, int64_t last) const;
 	std::vector<ParsedEntry> read_page_from_can_id(uint32_t can_id,
 	                                                          int64_t first,
