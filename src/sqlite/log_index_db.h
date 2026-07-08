@@ -46,7 +46,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <cstdint>
-#include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -89,8 +88,8 @@ public:
     LogIndexDatabase(const LogIndexDatabase&) = delete;
     LogIndexDatabase& operator=(const LogIndexDatabase&) = delete;
 
-    void open();
-    void    close();
+    void open_append_session();
+    void    close_append_session(); 
     std::string db_path() const;
 
     int32_t initialize_schema();
@@ -99,7 +98,7 @@ public:
 
     void append_entry(uint32_t row_index,
                       const LogRecord& entry);
-    void update_entry(uint32_t row_index,
+    bool update_entry(uint32_t row_index,
                       const LogRecord& entry,
                       const file_service::mmap::DataMmapInterface& data);
 
@@ -122,7 +121,7 @@ public:
                                             int64_t first,
                                             int64_t last);
 
-    const std::string& last_error_message() const;
+    //const std::string& last_error_message() const;
 
 private:
     struct PrevRaw {
@@ -130,7 +129,7 @@ private:
         uint8_t data[64] = {0};
     };
 
-    void ensure_open() const;
+    // void ensure_open() const;
     bool compute_changed_and_update(uint32_t can_id,
                                     const uint8_t* data,
                                     uint8_t data_len);
@@ -148,8 +147,10 @@ private:
     Forget delete → memory leak.
     Delete twice → crash.
     Exception before delete → leak.    
+
     */
-    std::unique_ptr<sqlitew::Stmt> stmt_;
+    // Insert statement is created in open() and finalized in close().
+    sqlite3_stmt* stmt_ = nullptr;
     sqlite3* db_ = nullptr;
     std::unordered_map<uint32_t, PrevRaw> last_raw_by_id_;
     std::string db_path_;

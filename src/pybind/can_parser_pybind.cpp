@@ -31,12 +31,12 @@ std::vector<ParsedEntry> copy_and_free_entries(ParsedEntry* entries, uint32_t co
 }  // namespace
 
 void bind_can_parser(py::module_& m) {
-    m.def("run_worker_segmented", [](const std::string& file_path, const std::string& token_id, int32_t fmt) {
+    m.def("run_worker_segmented", [](const std::string& file_path, const std::string& token_id) {
         return run_worker_segmented(
             file_path.c_str(),
-            token_id.c_str(),
-            static_cast<FormatType>(fmt));
-    }, py::arg("file_path"), py::arg("token_id"), py::arg("fmt"));
+            token_id.c_str()
+        );
+    }, py::arg("file_path"), py::arg("token_id"));
 
     m.def("parse_file", [](const std::string& path) {
         ParsedEntry* out_entries = nullptr;

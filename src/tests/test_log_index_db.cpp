@@ -16,7 +16,7 @@ TEST(LogIndexDatabaseTest, OpenInitializeAppend) {
 
     file_service::LogIndexDatabase db(token);
     // open + initialize schema
-    db.open();
+    db.open_append_session();
     ASSERT_EQ(db.initialize_schema(), 0);
 
     db.begin_transaction();
@@ -32,16 +32,18 @@ TEST(LogIndexDatabaseTest, OpenInitializeAppend) {
 
     db.append_entry(0u, rec);
     db.commit_transaction();
-    db.close();
+    db.close_append_session();
 
     // verify row exists by opening DB directly and counting rows
     sqlite3* raw_db = nullptr;
     sqlitew::open((token + ".index.sqlite").c_str(), &raw_db);
-    sqlitew::Stmt stmt(raw_db, "SELECT COUNT(*) FROM log_index;");
-    const int rc = stmt.step();
+    sqlite3_stmt* stmt = nullptr;
+    sqlitew::prepare_v2(raw_db, "SELECT COUNT(*) FROM log_index;", -1, &stmt, nullptr);
+    const int rc = sqlitew::step(stmt);
     // SQLITE_ROW is 100 in wrapper implementation
     ASSERT_EQ(rc, 100);
-    const long long cnt = stmt.column_int64(0);
+    const long long cnt = sqlitew::column_int64(stmt, 0);
     ASSERT_GE(cnt, 1);
+    sqlitew::finalize(stmt);
     sqlitew::close(raw_db);
 }

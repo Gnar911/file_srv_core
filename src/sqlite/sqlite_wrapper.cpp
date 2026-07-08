@@ -1,5 +1,31 @@
 #include "sqlite/sqlite_wrapper.h"
 
+// Forward-declare the SQLite C API with C linkage so the linker finds the
+// correct (unmangled) symbols from libsqlite3. We avoid including sqlite3.h
+// to keep this wrapper lightweight.
+extern "C" {
+const char* sqlite3_errmsg(sqlite3*);
+
+int sqlite3_open(const char* filename, sqlite3** ppDb);
+int sqlite3_close(sqlite3*);
+int sqlite3_exec(sqlite3*, const char*, int (*)(void*, int, char**, char**), void*, char**);
+int sqlite3_prepare_v2(sqlite3*, const char*, int, sqlite3_stmt**, const char**);
+int sqlite3_bind_int64(sqlite3_stmt*, int, sqlite3_int64);
+int sqlite3_bind_double(sqlite3_stmt*, int, double);
+int sqlite3_bind_text(sqlite3_stmt*, int, const char*, int, sqlite3_destructor_type);
+int sqlite3_bind_blob(sqlite3_stmt*, int, const void*, int, sqlite3_destructor_type);
+int sqlite3_bind_zeroblob(sqlite3_stmt*, int, int);
+int sqlite3_step(sqlite3_stmt*);
+int sqlite3_finalize(sqlite3_stmt* pStmt);
+int sqlite3_reset(sqlite3_stmt* pStmt);
+int sqlite3_clear_bindings(sqlite3_stmt* pStmt);
+int sqlite3_errcode(sqlite3*);
+const unsigned char* sqlite3_column_text(sqlite3_stmt*, int iCol);
+const void* sqlite3_column_blob(sqlite3_stmt*, int iCol);
+sqlite3_int64 sqlite3_column_int64(sqlite3_stmt*, int iCol);
+int sqlite3_column_bytes(sqlite3_stmt*, int iCol);
+}
+
 namespace {
 inline std::string format_errmsg(sqlite3* db, const char* op, int rc) {
 	std::string msg = std::string(op) + " rc=" + std::to_string(rc);
@@ -13,6 +39,8 @@ inline std::string format_errmsg(sqlite3* db, const char* op, int rc) {
 
 namespace sqlitew {
 
+
+	
 // Define SQLITE_ROW/DONE locally to avoid including sqlite3.h here.
 constexpr int SQLITE_ROW = 100;
 constexpr int SQLITE_DONE = 101;
@@ -75,56 +103,6 @@ int step(sqlite3_stmt* stmt) {
 	if (rc == SQLITE_ROW || rc == SQLITE_DONE) return rc;
 	throw SqliteError(rc, std::string("sqlite3_step rc=") + std::to_string(rc));
 }
-
-// Stmt implementation
-Stmt::Stmt(sqlite3* db, const char* sql, int n, const char** tail)
-	: stmt_db_(db), stmt_(nullptr) {
-	prepare_v2(db, sql, n, &stmt_, tail);
-}
-
-Stmt::~Stmt() {
-	if (stmt_ != nullptr) {
-		try {
-			finalize(stmt_);
-		} catch (...) {
-			// destructors must not throw; swallow errors
-		}
-		stmt_ = nullptr;
-	}
-}
-
-Stmt::Stmt(Stmt&& other) noexcept
-	: stmt_db_(other.stmt_db_), stmt_(other.stmt_) {
-	other.stmt_db_ = nullptr;
-	other.stmt_ = nullptr;
-}
-
-Stmt& Stmt::operator=(Stmt&& other) noexcept {
-	if (this != &other) {
-		if (stmt_ != nullptr) {
-			try { finalize(stmt_); } catch(...) {}
-		}
-		stmt_db_ = other.stmt_db_;
-		stmt_ = other.stmt_;
-		other.stmt_db_ = nullptr;
-		other.stmt_ = nullptr;
-	}
-	return *this;
-}
-
-void Stmt::bind_int64(int idx, sqlite3_int64 v) { ::sqlitew::bind_int64(stmt_, idx, v); }
-void Stmt::bind_double(int idx, double v) { ::sqlitew::bind_double(stmt_, idx, v); }
-void Stmt::bind_text(int idx, const char* txt, int n, sqlite3_destructor_type d) { ::sqlitew::bind_text(stmt_, idx, txt, n, d); }
-void Stmt::bind_blob(int idx, const void* data, int n, sqlite3_destructor_type d) { ::sqlitew::bind_blob(stmt_, idx, data, n, d); }
-void Stmt::bind_zeroblob(int idx, int n) { ::sqlitew::bind_zeroblob(stmt_, idx, n); }
-int Stmt::step() { return ::sqlitew::step(stmt_); }
-void Stmt::reset() { ::sqlitew::reset(stmt_); }
-void Stmt::clear_bindings() { ::sqlitew::clear_bindings(stmt_); }
-
-sqlite3_int64 Stmt::column_int64(int i) const { return ::sqlitew::column_int64(stmt_, i); }
-const unsigned char* Stmt::column_text(int i) const { return ::sqlitew::column_text(stmt_, i); }
-const void* Stmt::column_blob(int i) const { return ::sqlitew::column_blob(stmt_, i); }
-int Stmt::column_bytes(int i) const { return ::sqlitew::column_bytes(stmt_, i); }
 
 void finalize(sqlite3_stmt* stmt) {
 	const int rc = sqlite3_finalize(stmt);

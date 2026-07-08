@@ -1,38 +1,168 @@
-// Centralized minimal SQLite C ABI declarations to avoid duplicating the
-// extern "C" block across multiple translation units.
-// This header mirrors the subset of the SQLite C API used by this project.
-
 #pragma once
 
-extern "C" {
-struct sqlite3;
-struct sqlite3_stmt;
-using sqlite3_int64 = long long;
-using sqlite3_destructor_type = void (*)(void*);
 
-int sqlite3_open(const char* filename, sqlite3** ppDb);
-int sqlite3_close(sqlite3*);
-int sqlite3_exec(sqlite3*, const char*, int (*)(void*, int, char**, char**), void*, char**);
-int sqlite3_prepare_v2(sqlite3*, const char*, int, sqlite3_stmt**, const char**);
-int sqlite3_bind_int64(sqlite3_stmt*, int, sqlite3_int64);
-int sqlite3_bind_double(sqlite3_stmt*, int, double);
-int sqlite3_bind_text(sqlite3_stmt*, int, const char*, int, sqlite3_destructor_type);
-int sqlite3_bind_blob(sqlite3_stmt*, int, const void*, int, sqlite3_destructor_type);
-int sqlite3_bind_zeroblob(sqlite3_stmt*, int, int);
-int sqlite3_step(sqlite3_stmt*);
-int sqlite3_finalize(sqlite3_stmt* pStmt);
-int sqlite3_reset(sqlite3_stmt* pStmt);
-int sqlite3_clear_bindings(sqlite3_stmt* pStmt);
-int sqlite3_errcode(sqlite3*);
-const char* sqlite3_errmsg(sqlite3*);
-sqlite3_int64 sqlite3_column_int64(sqlite3_stmt*, int iCol);
-const unsigned char* sqlite3_column_text(sqlite3_stmt*, int iCol);
-const void* sqlite3_column_blob(sqlite3_stmt*, int iCol);
-int sqlite3_column_bytes(sqlite3_stmt*, int iCol);
-}
 
-// C++ thin wrappers to avoid calling the raw C symbols throughout the codebase.
-// These forward to the C API and live in the `sqlitew` namespace.
+/// NOTE: 20260708
+/*
+There are two different kinds of SQLite objects:
+Database connection (sqlite3*)
+
+sqlite3* db;
+sqlite3_open("log.db", &db);
+-> This represents the connection to the database.
+sqlite3_close(db);
+// or sqlite3_close_v2(db);
+-> No statement is involved in closing the database.
+
+
+Prepared statement (sqlite3_stmt*) to execute a SQL command
+sqlite3_stmt* stmt;
+sqlite3_prepare_v2(db,
+                   "SELECT ...",
+                   -1,
+                   &stmt,
+                   nullptr);
+
+sqlite3_step(stmt);
+sqlite3_finalize(stmt);
+
+sqlite3* db
+    │
+    ├── sqlite3_stmt* stmt1   (INSERT)
+    ├── sqlite3_stmt* stmt2   (SELECT)
+    ├── sqlite3_stmt* stmt3   (UPDATE)
+    └── sqlite3_stmt* stmt4   (DELETE)
+must finalize the statements before sqlite3_close() succeeds otherwise it return SQLITE_BUSY
+*/
+
+/// NOTE: resource lifecycle management
+/// In sqlite3.h, you only get:
+/// typedef struct sqlite3 sqlite3;
+/// This is called a forward declaration or incomplete type.
+/*
+The compiler knows:
+
+"There is a struct named sqlite3."
+
+But it does not know:
+
+its size
+its members
+its alignment
+
+Therefore these are legal:
+
+sqlite3* db;      // OK
+sqlite3& ref;     // OK
+
+because pointers and references have known sizes.
+
+But these are illegal:
+
+sqlite3 db;               // ERROR
+sizeof(sqlite3);          // ERROR
+new sqlite3;              // ERROR
+*/
+
+/// NOTE:
+/*
+1. One pointer, prepare every time
+prepare INSERT
+step
+finalize
+
+prepare INSERT
+step
+finalize
+
+prepare INSERT
+step
+finalize
+
+...
+> One million prepares.
+
+
+sqlite3_stmt* stmt = nullptr;
+
+sqlite3_prepare_v2(db, "...SELECT...", -1, &stmt, nullptr);
+sqlite3_step(stmt);
+sqlite3_finalize(stmt);
+stmt = nullptr;
+
+sqlite3_prepare_v2(db, "...UPDATE...", -1, &stmt, nullptr);
+sqlite3_step(stmt);
+sqlite3_finalize(stmt);
+stmt = nullptr;
+-> Could use RAII to reduce the syntax
+
+2. Keep one prepared statement
+prepare INSERT      <-- once
+
+bind
+step
+reset
+
+bind
+step
+reset
+
+bind
+step
+reset
+
+...
+
+finalize            <-- once
+
+-> Only one prepare.
+*/
+
+/// NOTE: RAII 
+/*
+The RAII wrappers are there not because you want to finalize after every query, 
+but because they guarantee that if something goes wrong after some resources have already been acquired, 
+the resources that were successfully acquired are still released automatically when their owning objects are destroyed.
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+// extern "C" {
+// struct sqlite3;
+// struct sqlite3_stmt;
+// using sqlite3_int64 = long long;
+// using sqlite3_destructor_type = void (*)(void*);
+// int sqlite3_open(const char* filename, sqlite3** ppDb);
+// int sqlite3_close(sqlite3*);
+// int sqlite3_exec(sqlite3*, const char*, int (*)(void*, int, char**, char**), void*, char**);
+// int sqlite3_prepare_v2(sqlite3*, const char*, int, sqlite3_stmt**, const char**);
+// int sqlite3_bind_int64(sqlite3_stmt*, int, sqlite3_int64);
+// int sqlite3_bind_double(sqlite3_stmt*, int, double);
+// int sqlite3_bind_text(sqlite3_stmt*, int, const char*, int, sqlite3_destructor_type);
+// int sqlite3_bind_blob(sqlite3_stmt*, int, const void*, int, sqlite3_destructor_type);
+// int sqlite3_bind_zeroblob(sqlite3_stmt*, int, int);
+// int sqlite3_step(sqlite3_stmt*);
+// int sqlite3_finalize(sqlite3_stmt* pStmt);
+// int sqlite3_reset(sqlite3_stmt* pStmt);
+// int sqlite3_clear_bindings(sqlite3_stmt* pStmt);
+// int sqlite3_errcode(sqlite3*);
+// const char* sqlite3_errmsg(sqlite3*);
+// sqlite3_int64 sqlite3_column_int64(sqlite3_stmt*, int iCol);
+// const unsigned char* sqlite3_column_text(sqlite3_stmt*, int iCol);
+// const void* sqlite3_column_blob(sqlite3_stmt*, int iCol);
+// int sqlite3_column_bytes(sqlite3_stmt*, int iCol);
+//}
+
 #include <stdexcept>
 #include <string>
 
@@ -41,6 +171,11 @@ struct SqliteError : public std::runtime_error {
 	explicit SqliteError(int rc_, const std::string& msg)
 		: std::runtime_error(msg), rc(rc_) {}
 };
+
+struct sqlite3;
+struct sqlite3_stmt;
+using sqlite3_int64 = long long;
+using sqlite3_destructor_type = void (*)(void*);
 
 namespace sqlitew {
 	// These wrappers throw SqliteError on failure. They do not return SQLite rc codes.
@@ -64,39 +199,4 @@ namespace sqlitew {
 	const void* column_blob(sqlite3_stmt* stmt, int i);
 	int column_bytes(sqlite3_stmt* stmt, int i);
 
-// RAII helper for sqlite3_stmt* to ensure finalize is always called.
-class Stmt {
-public:
-	Stmt(sqlite3* db, const char* sql, int n = -1, const char** tail = nullptr);
-	~Stmt();
-
-	// non-copyable
-	Stmt(const Stmt&) = delete;
-	Stmt& operator=(const Stmt&) = delete;
-
-	// movable
-	Stmt(Stmt&& other) noexcept;
-	Stmt& operator=(Stmt&& other) noexcept;
-
-	sqlite3_stmt* get() const { return stmt_; }
-
-	// wrappers that forward to free functions
-	void bind_int64(int idx, sqlite3_int64 v);
-	void bind_double(int idx, double v);
-	void bind_text(int idx, const char* txt, int n, sqlite3_destructor_type d);
-	void bind_blob(int idx, const void* data, int n, sqlite3_destructor_type d);
-	void bind_zeroblob(int idx, int n);
-	int step();
-	void reset();
-	void clear_bindings();
-
-	sqlite3_int64 column_int64(int i) const;
-	const unsigned char* column_text(int i) const;
-	const void* column_blob(int i) const;
-	int column_bytes(int i) const;
-
-private:
-	sqlite3* stmt_db_ = nullptr;
-	sqlite3_stmt* stmt_ = nullptr;
-};
 }

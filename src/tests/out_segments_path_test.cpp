@@ -162,7 +162,7 @@ TEST(CanDecoderApiMock, RunDecodeSmokeWritesSqliteData) {
     const std::filesystem::path token_path = dir / "token_run_decode";
 
     file_service::MetaDataStorageInterface parsed(token_path.string());
-    parsed.open_mmap();
+    parsed.close_storage();
 
     std::vector<LogRecord> entries;
     entries.push_back(make_entry(1, 0x321, 10));
@@ -170,7 +170,7 @@ TEST(CanDecoderApiMock, RunDecodeSmokeWritesSqliteData) {
     entries.push_back(make_entry(3, 0x321, 20));
 
     parsed.write_entries(entries);
-    parsed.close_mmap();
+    parsed.close_storage();
 
     CanDecoder decoder;
     decoder.free_db();

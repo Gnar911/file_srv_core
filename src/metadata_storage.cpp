@@ -56,8 +56,8 @@ void MetaDataStorageInterface::open_storage() {
 
     data_.open_and_init(); // throws on error
     // SQLite multi-factor filter index (payload stays in mmap; see header note).
-    index_db_.open();
-    index_db_.initialize_schema();
+    index_db_.open_append_session();
+    //index_db_.initialize_schema();
 
     initialized_ = true;
 }
@@ -130,7 +130,7 @@ void MetaDataStorageInterface::update_entries(const std::vector<EntryUpdate>& en
 void MetaDataStorageInterface::close_storage() {
     CBCM_TRACE("MetaDataStorageInterface::close_mmap enter token=%s", mmap_prefix_.c_str());
     data_.close_and_finalize();
-    index_db_.close();
+    index_db_.close_append_session();
     initialized_ = false;
 }
 

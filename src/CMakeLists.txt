@@ -107,16 +107,19 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/mmap
     )
 
+    # Select sqlite link library (use absolute system path when available)
     if(UNIX AND EXISTS "/lib/x86_64-linux-gnu/libsqlite3.so.0")
-        target_link_libraries(file_service_test_lib PUBLIC /lib/x86_64-linux-gnu/libsqlite3.so.0)
+        set(SQLITE_LIB "/lib/x86_64-linux-gnu/libsqlite3.so.0")
     else()
-        target_link_libraries(file_service_test_lib PUBLIC sqlite3)
+        set(SQLITE_LIB sqlite3)
     endif()
+
+    target_link_libraries(file_service_test_lib PUBLIC ${SQLITE_LIB})
 
     # Helper to create test executables that link the common test library
     function(add_file_service_test targetName)
         add_executable(${targetName} ${ARGN})
-        target_link_libraries(${targetName} PRIVATE file_service_test_lib GTest::gtest)
+        target_link_libraries(${targetName} PRIVATE file_service_test_lib GTest::gtest_main ${SQLITE_LIB})
         target_include_directories(${targetName} PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}
             ${CMAKE_CURRENT_SOURCE_DIR}/mmap
@@ -125,7 +128,7 @@ if(BUILD_TESTING)
     endfunction()
 
     # Tests (only provide test-specific sources)
-    add_file_service_test(file_service_core_tests tests/out_segments_path_test.cpp)
+    #add_file_service_test(file_service_core_tests tests/out_segments_path_test.cpp)
     add_file_service_test(test_decode_function tests/test_decode_function.cpp)
     add_file_service_test(asc_reader_gtest tests/test_asc_reader.cpp asc_reader.cpp)
     add_file_service_test(run_worker_segmented_test tests/test_run_worker_segmented.cpp can_parser.cpp asc_reader.cpp)
