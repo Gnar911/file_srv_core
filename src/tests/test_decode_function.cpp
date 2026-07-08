@@ -20,9 +20,6 @@ TEST(DecodeFunctionTest, RunDecodeAndConfirmDatabase) {
     const std::string token_path = g_token_path;
     std::cout << "[DecodeFunctionTest] token_path=" << token_path << "\n";
 
-    CanDecoder decoder;
-    decoder.free_db();
-
     MessageDef msg{};
     msg.can_id = 0x123;
     msg.signal_count = 1;
@@ -42,9 +39,8 @@ TEST(DecodeFunctionTest, RunDecodeAndConfirmDatabase) {
     model.messages.push_back(msg);
     model.signals.push_back(sig);
     model.canid_to_msg[msg.can_id] = 0;
-    ASSERT_EQ(decoder.load_db(model), 0);
-    
-    const DecodeError decode_error = can_decoder_run(token_path.c_str(), decoder);
+
+    const DecodeError decode_error = can_decoder_run(token_path.c_str(), model);
     std::cout << "[DecodeFunctionTest] can_decoder_run rc=" << decode_error.rc
               << " error=" << decode_error.error_message << "\n";
     ASSERT_EQ(decode_error.rc, 0) << "can_decoder_run failed with rc=" << decode_error.rc

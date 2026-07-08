@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <stdexcept>
 
 #ifdef _WIN32
 #  ifndef NOMINMAX
@@ -25,14 +26,22 @@ struct MMapHandle {
 
 #endif
 
+class MMapError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+
 // Open an existing file read-only (private mapping).
-bool mmap_open_ro(const char* path, MMapHandle& out);
+// Throws MMapError on failure.
+void mmap_open_ro(const char* path, MMapHandle& out);
 
 // Open an existing file read-write (shared mapping).
-bool mmap_open_rw(const char* path, MMapHandle& out);
+// Throws MMapError on failure.
+void mmap_open_rw(const char* path, MMapHandle& out);
 
 // Create (or truncate) a file to `size` bytes and map it read-write (shared).
-bool mmap_create_rw(const char* path, size_t size, MMapHandle& out);
+// Throws MMapError on failure.
+void mmap_create_rw(const char* path, size_t size, MMapHandle& out);
 
 // Unmap and close all handles; resets `h` to default state.
 void mmap_close(MMapHandle& h);

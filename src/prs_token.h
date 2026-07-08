@@ -177,8 +177,8 @@ static void safe_strcpy(char* dst, size_t dst_max, const char* src, size_t src_l
 }
 
 
-// Fill ParsedEntry data[] from token array starting at dlc_idx+1, for dlc bytes
-static bool fill_data(ParsedEntry& e, const Tok* toks, int ntoks,
+// Fill LogRecord data[] from token array starting at dlc_idx+1, for dlc bytes
+static bool fill_data(LogRecord& e, const Tok* toks, int ntoks,
                       int dlc_idx, int dlc) {
     if (dlc_idx + dlc >= ntoks) return false;
     e.data_len = (uint8_t)(dlc < 64 ? dlc : 64);
@@ -228,13 +228,13 @@ static int find_dir(const Tok* toks, int ntoks, uint8_t& dir) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Per-format parsers
-// Each takes pre-tokenised line and tries to fill ParsedEntry.
+// Each takes pre-tokenised line and tries to fill LogRecord.
 // Returns true on success.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // FMT_CANOE: "ts ... CANFD chan ... Tx/Rx CAN_ID [name] flags DLC bytes ..."
 static bool parse_canoe(const Tok* toks, int ntoks,
-                        uint32_t line_num, ParsedEntry& e) {
+                        LogRecord& e) {
     if (ntoks < 8) return false;
     double ts;
     if (!tok_double(toks[0], ts)) return false;
@@ -257,7 +257,6 @@ static bool parse_canoe(const Tok* toks, int ntoks,
 
     if (!fill_data(e, toks, ntoks, dlc_idx, dlc)) return false;
 
-    e.line_number = line_num;
     e.timestamp   = ts;
     e.can_id      = can_id;
     e.direction   = dir;
@@ -270,7 +269,7 @@ static bool parse_canoe(const Tok* toks, int ntoks,
 // FMT_CANOE_FULL: "DATE TIME ts ... CANFD chan CAN_ID Tx/Rx ... DLC bytes"
 // tokens[0]=date, tokens[1]=time, tokens[2]=timestamp, tokens[3..]=CANFD chan
 static bool parse_canoe_full(const Tok* toks, int ntoks,
-                              uint32_t line_num, ParsedEntry& e) {
+                              LogRecord& e) {
     if (ntoks < 10) return false;
     // tokens[0] must contain '-' (date)
     if (!memchr(toks[0].p, '-', toks[0].n)) return false;
@@ -296,7 +295,6 @@ static bool parse_canoe_full(const Tok* toks, int ntoks,
 
     if (!fill_data(e, toks, ntoks, dlc_idx, dlc)) return false;
 
-    e.line_number = line_num;
     e.timestamp   = ts;
     e.can_id      = can_id;
     e.direction   = dir;
@@ -309,7 +307,7 @@ static bool parse_canoe_full(const Tok* toks, int ntoks,
 // FMT_CANOE_CMP: "ts chan CAN_ID Tx/Rx d DLC bytes..."
 // tokens[0]=ts, [1]=chan, [2]=id, [3]=Tx/Rx, [4]="d", [5]=dlc, [6..]=bytes
 static bool parse_canoe_compact(const Tok* toks, int ntoks,
-                                 uint32_t line_num, ParsedEntry& e) {
+                                 LogRecord& e) {
     if (ntoks < 7) return false;
     double ts;
     if (!tok_double(toks[0], ts)) return false;
@@ -327,7 +325,6 @@ static bool parse_canoe_compact(const Tok* toks, int ntoks,
     if (!tok_uint(toks[5], dlc) || !is_valid_dlc((int)dlc)) return false;
     if (6 + (int)dlc > ntoks) return false;
 
-    e.line_number = line_num;
     e.timestamp   = ts;
     e.can_id      = can_id;
     e.direction   = dir;
@@ -346,7 +343,7 @@ static bool parse_canoe_compact(const Tok* toks, int ntoks,
 // FMT_CANCMD: "date time ts 1 CANFD 1 CAN_ID Tx/Rx name X DLC bytes"
 // tokens[0]=date, [1]=time, [2]=ts, [3..5]=bus/flags, [6]=CAN_ID, [7]=dir, [8]=name ...
 static bool parse_cancmd(const Tok* toks, int ntoks,
-                         uint32_t line_num, ParsedEntry& e) {
+                         LogRecord& e) {
     if (ntoks < 10) return false;
     if (!memchr(toks[0].p, '-', toks[0].n)) return false;  // date check
     double ts;
@@ -367,7 +364,6 @@ static bool parse_cancmd(const Tok* toks, int ntoks,
 
     if (!fill_data(e, toks, ntoks, dlc_idx, dlc)) return false;
 
-    e.line_number = line_num;
     e.timestamp   = ts;
     e.can_id      = can_id;
     e.direction   = dir;
@@ -378,7 +374,7 @@ static bool parse_cancmd(const Tok* toks, int ntoks,
 // FMT_FILTER: "ts SOMETHING NUM Tx/Rx CAN_ID name DLC bytes"
 // tokens[0]=ts, [1]=channel-like, [2]=num, [3]=dir, [4]=can_id, [5]=name, [6]=dlc, ...
 static bool parse_filter_log(const Tok* toks, int ntoks,
-                              uint32_t line_num, ParsedEntry& e) {
+                              LogRecord& e) {
     if (ntoks < 7) return false;
     double ts;
     if (!tok_double(toks[0], ts)) return false;
@@ -398,7 +394,6 @@ static bool parse_filter_log(const Tok* toks, int ntoks,
 
     if (!fill_data(e, toks, ntoks, dlc_idx, dlc)) return false;
 
-    e.line_number = line_num;
     e.timestamp   = ts;
     e.can_id      = can_id;
     e.direction   = dir;
@@ -409,7 +404,7 @@ static bool parse_filter_log(const Tok* toks, int ntoks,
 // FMT_CANSUKE: "ts NUM CAN_ID Tx/Rx name DLC bytes"
 // tokens[0]=ts, [1]=channel-num, [2]=can_id, [3]=dir, [4]=name, [5+]=dlc+bytes
 static bool parse_cansuke(const Tok* toks, int ntoks,
-                           uint32_t line_num, ParsedEntry& e) {
+                           LogRecord& e) {
     if (ntoks < 6) return false;
     double ts;
     if (!tok_double(toks[0], ts)) return false;
@@ -438,7 +433,6 @@ static bool parse_cansuke(const Tok* toks, int ntoks,
 
     if (!fill_data(e, toks, ntoks, dlc_idx, dlc)) return false;
 
-    e.line_number = line_num;
     e.timestamp   = ts;
     e.can_id      = can_id;
     e.direction   = dir;
@@ -449,7 +443,7 @@ static bool parse_cansuke(const Tok* toks, int ntoks,
 // FMT_CANCMD_T2: TAB-separated
 // cols[0]=ts, [1]=ch, [2]=id, [3]=name, [4]=dlc, [5]=data bytes, [6]=dir
 static bool parse_cancmd_t2(const char* line, size_t len,
-                             uint32_t line_num, ParsedEntry& e) {
+                             LogRecord& e) {
     // LOGGING_TRACE_ENABLED;
     // Split by TAB
     const char* col[16];
@@ -529,7 +523,6 @@ static bool parse_cancmd_t2(const char* line, size_t len,
     }
     // memset zero-fill removed for performance — data_len marks valid bytes
 
-    e.line_number = line_num;
     e.timestamp   = ts;
     e.can_id      = can_id;
     e.direction   = dir;
@@ -540,7 +533,7 @@ static bool parse_cancmd_t2(const char* line, size_t len,
 // FMT_CANCMD_T3: "timediff chan CAN_ID hex_flag bytes... Tx/Rx TYPE chan"
 // tokens[0]=timediff(ms), [1]=chan, [2]=can_id, then data until Tx/Rx
 static bool parse_cancmd_t3(const Tok* toks, int ntoks,
-                             uint32_t line_num, ParsedEntry& e) {
+                             LogRecord& e) {
     if (ntoks < 6) return false;
     double ts;
     {
@@ -564,7 +557,6 @@ static bool parse_cancmd_t3(const Tok* toks, int ntoks,
 
     if (!fill_data(e, toks, ntoks, dlc_idx, dlc)) return false;
 
-    e.line_number = line_num;
     e.timestamp   = ts;
     e.can_id      = can_id;
     e.direction   = dir;
@@ -573,40 +565,64 @@ static bool parse_cancmd_t3(const Tok* toks, int ntoks,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Try all parsers in order; return matched format or FMT_UNKNOWN
+// This C++ detect format line is not using Regex, instead it try and error all the possibility tokens
+// This turn out to be strict format and only accept pre-defined format match exactly -> use REGEX for more flexible
 // ─────────────────────────────────────────────────────────────────────────────
-static FormatType detect_and_parse(const char* line, size_t len,
-                                   uint32_t line_num, ParsedEntry& e) {
-    // LOGGING_TRACE_ENABLED;
-    // Fast check: skip obviously empty/comment lines
-    const char* p = line;
-    while (p < line + len && (unsigned char)*p <= ' ') ++p;
-    if (p >= line + len) return FMT_UNKNOWN;
-    if (*p == '/' || *p == '#' || *p == ';') return FMT_UNKNOWN;
+[[deprecated("This turn out to be strict format and only accept pre-defined format match exactly -> use REGEX for more flexible")]]
+static FormatType detect_format(const char* line, size_t len) {
+//     // LOGGING_TRACE_ENABLED;
+//     // Fast check: skip obviously empty/comment lines
+//     const char* p = line;
+//     while (p < line + len && (unsigned char)*p <= ' ') ++p;
+//     if (p >= line + len) return FMT_UNKNOWN;
+//     if (*p == '/' || *p == '#' || *p == ';') return FMT_UNKNOWN;
 
-    e.changed = 0;
-    e.last_timestamp = e.timestamp;
+//     // Check for TAB-separated (FMT_CANCMD_T2) first - it's structurally distinct
+//     for (size_t i = 0; i < len; i++) {
+//         if (line[i] == '\t') {
+//             LogRecord tmp{};
+//             if (parse_cancmd_t2(line, len, tmp)) return FMT_CANCMD_T2;
+//             break; // if has tabs but failed, don't try others
+//         }
+//     }
 
-    // Check for TAB-separated (FMT_CANCMD_T2) first - it's structurally distinct
-    for (size_t i = 0; i < len; i++) {
-        if (line[i] == '\t') {
-            if (parse_cancmd_t2(line, len, line_num, e)) return FMT_CANCMD_T2;
-            break; // if has tabs but failed, don't try others
-        }
+//     // Tokenise once for the remaining parsers
+//     Tok toks[256];
+//     int ntoks = tokenize(line, len, toks, 256);
+//     if (ntoks < 4) return FMT_UNKNOWN;
+
+//     LogRecord tmp{};
+//     if (parse_canoe       (toks, ntoks, tmp)) return FMT_CANOE;
+//     if (parse_canoe_full  (toks, ntoks, tmp)) return FMT_CANOE_FULL;
+//     if (parse_canoe_compact(toks, ntoks, tmp)) return FMT_CANOE_CMP;
+//     if (parse_cancmd      (toks, ntoks, tmp)) return FMT_CANCMD;
+//     if (parse_filter_log  (toks, ntoks, tmp)) return FMT_FILTER;
+//     if (parse_cansuke     (toks, ntoks, tmp)) return FMT_CANSUKE;
+//     if (parse_cancmd_t3   (toks, ntoks, tmp)) return FMT_CANCMD_T3;
+//     return FMT_UNKNOWN;
+}
+
+static bool parse_with_format(FormatType fmt, const char* line, size_t len,
+                              LogRecord& e) {
+    if (fmt == FMT_CANCMD_T2) {
+        return parse_cancmd_t2(line, len, e);
     }
 
-    // Tokenise once for the remaining parsers
     Tok toks[256];
     int ntoks = tokenize(line, len, toks, 256);
-    if (ntoks < 4) return FMT_UNKNOWN;
+    if (ntoks < 4) return false;
 
-    // Try parsers in priority order (mirrors Python pattern_parsers list)
-    if (parse_canoe       (toks, ntoks, line_num, e)) return FMT_CANOE;
-    if (parse_canoe_full  (toks, ntoks, line_num, e)) return FMT_CANOE_FULL;
-    if (parse_canoe_compact(toks, ntoks, line_num, e)) return FMT_CANOE_CMP;
-    if (parse_cancmd      (toks, ntoks, line_num, e)) return FMT_CANCMD;
-    if (parse_filter_log  (toks, ntoks, line_num, e)) return FMT_FILTER;
-    if (parse_cansuke     (toks, ntoks, line_num, e)) return FMT_CANSUKE;
-    if (parse_cancmd_t3   (toks, ntoks, line_num, e)) return FMT_CANCMD_T3;
-    return FMT_UNKNOWN;
+    bool ok = false;
+    switch (fmt) {
+    case FMT_CANOE:      ok = parse_canoe       (toks, ntoks, e); break;
+    case FMT_CANOE_FULL: ok = parse_canoe_full  (toks, ntoks, e); break;
+    case FMT_CANOE_CMP:  ok = parse_canoe_compact(toks, ntoks, e); break;
+    case FMT_CANCMD:     ok = parse_cancmd      (toks, ntoks, e); break;
+    case FMT_FILTER:     ok = parse_filter_log  (toks, ntoks, e); break;
+    case FMT_CANSUKE:    ok = parse_cansuke     (toks, ntoks, e); break;
+    case FMT_CANCMD_T3:  ok = parse_cancmd_t3   (toks, ntoks, e); break;
+    default:             ok = false; break;
+    }
+
+    return ok;
 }

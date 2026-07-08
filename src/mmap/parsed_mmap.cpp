@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <algorithm>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -31,12 +32,13 @@ std::pair<int64_t, int64_t> to_page_window(int64_t first, int64_t last) {
 
 } // namespace
 
-ParsedMmapInterface::ParsedMmapInterface(std::string token_id)
-        : token_id_(std::move(token_id)),
-            data_(token_id_),
-            canid_(token_id_ + ".index"),
-            channel_(token_id_ + ".index"),
-            direction_(token_id_ + ".index") {}
+ParsedMmapInterface::ParsedMmapInterface(std::string mmap_prefix)
+        : mmap_prefix_(std::move(mmap_prefix)),
+            data_(mmap_prefix_),
+            canid_(mmap_prefix_ + ".index"),
+            channel_(mmap_prefix_ + ".index"),
+            direction_(mmap_prefix_ + ".index"),
+            index_db_(mmap_prefix_) {}
 
 int32_t ParsedMmapInterface::last_error_code() const {
     return last_error_code_;
@@ -59,7 +61,7 @@ void ParsedMmapInterface::reset_runtime_only() {
 }
 
 int32_t ParsedMmapInterface::open_mmap() {
-    CBCM_TRACE("ParsedMmapInterface::open_mmap enter token=%s", token_id_.c_str());
+    CBCM_TRACE("ParsedMmapInterface::open_mmap enter token=%s", mmap_prefix_.c_str());
     clear_last_error();
     initialized_ = false;
     reset_runtime_only();
@@ -95,8 +97,20 @@ int32_t ParsedMmapInterface::open_mmap() {
         return rc;
     }
 
+    // SQLite multi-factor filter index (payload stays in mmap; see header note).
+    rc = index_db_.open();
+    if (rc == 0) {
+        rc = index_db_.initialize_schema();
+    }
+    if (rc != 0) {
+        last_error_code_ = rc;
+        CBCM_ERROR("ParsedMmapInterface::open_mmap index_db open failed rc=%d", rc);
+        close_mmap();
+        return rc;
+    }
+
     initialized_ = true;
-    CBCM_TRACE("ParsedMmapInterface::open_mmap exit rc=0 token=%s", token_id_.c_str());
+    CBCM_TRACE("ParsedMmapInterface::open_mmap exit rc=0 token=%s", mmap_prefix_.c_str());
     return 0;
 }
 
@@ -108,12 +122,13 @@ int32_t ParsedMmapInterface::write_entries(const std::vector<LogRecord>& entries
         return file_service::mmap::error_code::kWriterNotReady;
     }
 
-    int32_t rc = data_.write_entries(entries, buckets_);
-    if (rc != 0) {
-        last_error_code_ = rc;
-        CBCM_ERROR("ParsedMmapInterface::write_entries data write failed rc=%d", rc);
-        return rc;
-    }
+    // Global row index of entries[0] for this batch (before the data write
+    // advances the counter). Used to key the SQLite index rows 1:1 with mmap.
+    const uint64_t start_row = data_.total_written();
+
+    data_.write_entries(entries, &buckets_);
+
+    int32_t rc = 0;
 
     rc = direction_.write_from_buckets(buckets_);
     if (rc != 0) {
@@ -136,17 +151,40 @@ int32_t ParsedMmapInterface::write_entries(const std::vector<LogRecord>& entries
         return rc;
     }
 
+    // Populate the SQLite filter index. "changed" is taken from the same buckets
+    // the mmap indexes use, so the changed flag stays consistent across stores.
+    std::unordered_set<uint32_t> changed_rows;
+    for (const auto& kv : buckets_.can_id_changed_rows) {
+        for (const uint32_t row : kv.second) {
+            changed_rows.insert(row);
+        }
+    }
+
+    rc = index_db_.begin_transaction();
+    if (rc == 0) {
+        rc = index_db_.append_entries(entries, start_row, changed_rows);
+    }
+    if (rc == 0) {
+        rc = index_db_.commit_transaction();
+    }
+    if (rc != 0) {
+        last_error_code_ = rc;
+        CBCM_ERROR("ParsedMmapInterface::write_entries index_db write failed rc=%d", rc);
+        return rc;
+    }
+
     return 0;
 }
 
 void ParsedMmapInterface::close_mmap() {
-    CBCM_TRACE("ParsedMmapInterface::close_mmap enter token=%s", token_id_.c_str());
+    CBCM_TRACE("ParsedMmapInterface::close_mmap enter token=%s", mmap_prefix_.c_str());
     data_.close_and_finalize();
     direction_.close_and_finalize();
     channel_.close_and_finalize();
     canid_.close_and_finalize();
+    index_db_.close();
     initialized_ = false;
-    CBCM_TRACE("ParsedMmapInterface::close_mmap exit token=%s", token_id_.c_str());
+    CBCM_TRACE("ParsedMmapInterface::close_mmap exit token=%s", mmap_prefix_.c_str());
 }
 
 uint64_t ParsedMmapInterface::fetch_count() const {
@@ -174,7 +212,7 @@ int32_t ParsedMmapInterface::get_first_last_timestamp(double& out_first_ts,
 }
 
 const std::string& ParsedMmapInterface::token_path() const {
-    return token_id_;
+    return mmap_prefix_;
 }
 
 std::vector<ParsedEntry> ParsedMmapInterface::read_all_entries() const {
@@ -325,6 +363,19 @@ std::vector<ParsedEntry> ParsedMmapInterface::read_page_from_directions(
     const auto [first_line, page_size] = to_page_window(first, last);
     const std::vector<uint32_t> merged_rows = direction_.get_page_from_directions_row_indices(directions, first_line, page_size);
     const std::vector<uint64_t> rows = to_u64_rows(merged_rows);
+    return read_rows_from_data(rows);
+}
+
+std::vector<ParsedEntry> ParsedMmapInterface::read_page_multi(const LogQuery& query,
+                                                              int64_t first,
+                                                              int64_t last) {
+    clear_last_error();
+    // SQLite answers the multi-factor predicate with row indices; mmap fetches
+    // the actual payload for those rows (see design note in parsed_mmap_if.h).
+    const std::vector<uint64_t> rows = index_db_.query_row_indices(query, first, last);
+    if (rows.empty()) {
+        return {};
+    }
     return read_rows_from_data(rows);
 }
 

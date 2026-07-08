@@ -3,11 +3,13 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
 #include <utility>
 
 #include "can_analyzer_log.h"
 #include "can_parser.h"
 #include "mmap_error_codes.h"
+#include "mmap/mmap_wrapper.h"
 
 namespace file_service {
 namespace mmap {
@@ -15,24 +17,21 @@ namespace mmap {
 DataMmapInterface::DataMmapInterface(std::string base)
     : base_(std::move(base)) {}
 
-int32_t DataMmapInterface::read_header_metadata(uint32_t& out_segment_count,
-                                                uint32_t& out_capacity) const {
+void DataMmapInterface::read_header_metadata(uint32_t& out_segment_count,
+                                             uint32_t& out_capacity) const {
     out_segment_count = 0;
     out_capacity = 0;
 
     const std::string header0_path = make_segment_family_path("", 0);
     MMapHandle handle = {};
-    if (!mmap_open_ro(header0_path.c_str(), handle)) {
-        CBCM_ERROR("ensure_reader_state_loaded failed: header .000 not found path='%s'", header0_path.c_str());
-        return file_service::mmap::error_code::kHeaderSegment0Missing;
-    }
+    mmap_open_ro(header0_path.c_str(), handle);
 
-    if (handle.addr == nullptr || handle.size < file_service::kMmapHeaderConstractSize) {
-        CBCM_ERROR("ensure_reader_state_loaded failed: invalid header map path='%s' size=%zu",
-                   header0_path.c_str(),
-                   handle.size);
+    if (handle.size < file_service::kMmapHeaderConstractSize) {
+        // CBCM_ERROR("ensure_reader_state_loaded failed: invalid header map path='%s' size=%zu",
+        //            header0_path.c_str(),
+        //            handle.size);
         mmap_close(handle);
-        return file_service::mmap::error_code::kHeaderInvalid;
+        throw MMapError(std::string("invalid header mmap: ") + header0_path + " size=" + std::to_string(handle.size));
     }
 
     const auto* hdr = reinterpret_cast<const file_service::MmapHeaderConstract*>(handle.addr);
@@ -41,14 +40,14 @@ int32_t DataMmapInterface::read_header_metadata(uint32_t& out_segment_count,
     mmap_close(handle);
 
     if (out_segment_count == 0 || out_capacity == 0) {
-        CBCM_ERROR("ensure_reader_state_loaded failed: zero metadata segment_count=%u capacity=%u path='%s'",
-                   out_segment_count,
-                   out_capacity,
-                   header0_path.c_str());
-        return file_service::mmap::error_code::kHeaderZeroMetadata;
+        // CBCM_ERROR("ensure_reader_state_loaded failed: zero metadata segment_count=%u capacity=%u path='%s'",
+        //            out_segment_count,
+        //            out_capacity,
+        //            header0_path.c_str());
+        throw MMapError(std::string("zero metadata header: ") + header0_path);
     }
 
-    return file_service::mmap::error_code::kOk;
+    (void)file_service::mmap::error_code::kOk;
 }
 
 std::vector<ParsedEntry> DataMmapInterface::get_page_from_row_indices(int64_t first_line,
@@ -71,14 +70,11 @@ std::vector<ParsedEntry> DataMmapInterface::get_page_from_row_indices(int64_t fi
     return out_entries;
 }
 
-int32_t DataMmapInterface::read_entry(uint64_t global_row,
-                                      ParsedEntry& out_entry) const {
+void DataMmapInterface::read_entry(uint64_t global_row,
+                                   ParsedEntry& out_entry) const {
     uint32_t segment_count = 0;
     uint32_t mmap_capacity = 0;
-    const int32_t state_rc = read_header_metadata(segment_count, mmap_capacity);
-    if (state_rc != 0) {
-        return state_rc;
-    }
+    read_header_metadata(segment_count, mmap_capacity); // throws on error
 
     const uint64_t seg_idx = global_row / static_cast<uint64_t>(mmap_capacity);
     const uint64_t local_idx = global_row % static_cast<uint64_t>(mmap_capacity);
@@ -87,35 +83,28 @@ int32_t DataMmapInterface::read_entry(uint64_t global_row,
                    static_cast<unsigned long long>(global_row),
                    static_cast<unsigned long long>(seg_idx),
                    segment_count);
-        return file_service::mmap::error_code::kSegmentIndexOutOfRange;
+        throw MMapError(std::string("segment index out of range: ") + std::to_string(global_row));
     }
 
-    const int32_t rc = read_entry_from_segment(static_cast<uint32_t>(seg_idx), local_idx, out_entry);
-    if (rc != 0) {
-        return rc;
-    }
+    read_entry_from_segment(static_cast<uint32_t>(seg_idx), local_idx, out_entry);
     out_entry.line_number = (global_row < static_cast<uint64_t>(UINT32_MAX))
         ? static_cast<uint32_t>(global_row + 1)
         : UINT32_MAX;
-    return file_service::mmap::error_code::kOk;
 }
 
-int32_t DataMmapInterface::read_entry_from_segment(uint32_t seg_idx,
-                                                   uint64_t target_idx,
-                                                   ParsedEntry& out_entry) const {
+void DataMmapInterface::read_entry_from_segment(uint32_t seg_idx,
+                                                uint64_t target_idx,
+                                                ParsedEntry& out_entry) const {
     const std::string path = make_segment_family_path("", seg_idx);
     MMapHandle handle = {};
-    if (!mmap_open_ro(path.c_str(), handle)) {
-        CBCM_ERROR("DataMmapInterface::read_entry_from_segment mmap not found/open failed path='%s'", path.c_str());
-        return file_service::mmap::error_code::kMmapOpenFailed;
-    }
+    mmap_open_ro(path.c_str(), handle);
 
-    if (handle.addr == nullptr || handle.size < file_service::kMmapHeaderConstractSize) {
+    if (handle.size < file_service::kMmapHeaderConstractSize) {
         CBCM_ERROR("DataMmapInterface::read_entry_from_segment invalid header path='%s' size=%zu",
                    path.c_str(),
                    handle.size);
         mmap_close(handle);
-        return file_service::mmap::error_code::kHeaderInvalid;
+        throw MMapError(std::string("invalid header mmap: ") + path + " size=" + std::to_string(handle.size));
     }
 
     const auto* hdr = reinterpret_cast<const file_service::MmapHeaderConstract*>(handle.addr);
@@ -125,7 +114,7 @@ int32_t DataMmapInterface::read_entry_from_segment(uint32_t seg_idx,
                    static_cast<unsigned long long>(target_idx),
                    hdr->capacity);
         mmap_close(handle);
-        return file_service::mmap::error_code::kInvalidReadArg;
+        throw MMapError(std::string("invalid read arg: ") + path);
     }
 
     const size_t offset = file_service::kMmapHeaderConstractSize
@@ -147,30 +136,25 @@ int32_t DataMmapInterface::read_entry_from_segment(uint32_t seg_idx,
                    handle.size);
     }
     mmap_close(handle);
-    return ok ? file_service::mmap::error_code::kOk : file_service::mmap::error_code::kReadOutOfRange;
+    if (!ok) {
+        throw MMapError(std::string("read out of range: ") + path);
+    }
 }
 
-int32_t DataMmapInterface::read_entries(const std::vector<uint64_t>& rows,
-                                        std::vector<ParsedEntry>& out_entries) const {
+void DataMmapInterface::read_entries(const std::vector<uint64_t>& rows,
+                                     std::vector<ParsedEntry>& out_entries) const {
     out_entries.clear();
-    if (rows.empty()) {
-        return file_service::mmap::error_code::kOk;
-    }
+    if (rows.empty()) return;
 
     out_entries.reserve(rows.size());
     for (uint64_t row : rows) {
         ParsedEntry entry{};
-        const int32_t rc = read_entry(row, entry);
-        if (rc != 0) {
-            return rc;
-        }
+        read_entry(row, entry); // throws on error
         out_entries.push_back(entry);
     }
-
-    return file_service::mmap::error_code::kOk;
 }
 
-int32_t DataMmapInterface::read_all_entries(
+void DataMmapInterface::read_all_entries(
     std::vector<ParsedEntry>& out_entries) const
 {
     out_entries.clear();
@@ -178,29 +162,22 @@ int32_t DataMmapInterface::read_all_entries(
     uint32_t segment_count;
     uint32_t mmap_capacity;
 
-    int32_t rc = read_header_metadata(segment_count, mmap_capacity);
-    if (rc != 0)
-        return rc;
+    read_header_metadata(segment_count, mmap_capacity); // throws on error
 
     for (uint32_t seg = 0; seg < segment_count; ++seg)
     {
-        rc = append_segment_entries(seg, out_entries);
-        if (rc != 0)
-            return rc;
+        append_segment_entries(seg, out_entries); // may throw
     }
-
-    return file_service::mmap::error_code::kOk;
 }
 
-int32_t DataMmapInterface::append_segment_entries(
+void DataMmapInterface::append_segment_entries(
     uint32_t seg_idx,
     std::vector<ParsedEntry>& out_entries) const
 {
     const std::string path = make_segment_family_path("", seg_idx);
 
     MMapHandle handle{};
-    if (!mmap_open_ro(path.c_str(), handle))
-        return file_service::mmap::error_code::kMmapOpenFailed;
+    mmap_open_ro(path.c_str(), handle);
 
     auto* hdr =
         reinterpret_cast<const file_service::MmapHeaderConstract*>(handle.addr);
@@ -224,34 +201,22 @@ int32_t DataMmapInterface::append_segment_entries(
 
     mmap_close(handle);
 
-    return file_service::mmap::error_code::kOk;
+    (void)file_service::mmap::error_code::kOk;
 }
 
-int32_t DataMmapInterface::read_first_last_timestamp(double& out_first_ts,
-                                                     double& out_last_ts) const {
+void DataMmapInterface::read_first_last_timestamp(double& out_first_ts,
+                                                  double& out_last_ts) const {
     out_first_ts = 0.0;
     out_last_ts = 0.0;
 
     uint64_t total_rows = 0;
-    const int32_t total_rc = read_total_rows(total_rows);
-    if (total_rc != 0) {
-        return total_rc;
-    }
+    read_total_rows(total_rows); // throws on error
     if (total_rows == 0) {
-        return file_service::mmap::error_code::kReadRowsNoData;
+        throw MMapError(std::string("no data for timestamps"));
     }
 
-    const int32_t first_rc = read_timestamp(0, out_first_ts);
-    if (first_rc != 0) {
-        return first_rc;
-    }
-
-    const int32_t last_rc = read_timestamp(total_rows - 1, out_last_ts);
-    if (last_rc != 0) {
-        return last_rc;
-    }
-
-    return file_service::mmap::error_code::kOk;
+    read_timestamp(0, out_first_ts); // throws on error
+    read_timestamp(total_rows - 1, out_last_ts); // throws on error
 }
 
 uint64_t DataMmapInterface::timestamp_lower_bound(uint64_t total_rows,
@@ -261,7 +226,8 @@ uint64_t DataMmapInterface::timestamp_lower_bound(uint64_t total_rows,
     while (lo < hi) {
         const uint64_t mid = (lo + hi) / 2;
         double ts = 0.0;
-        const bool ok = (read_timestamp(mid, ts) == 0);
+        bool ok = true;
+        read_timestamp(mid, ts);
         if (!ok || ts < target_ts) {
             lo = mid + 1;
         } else {
@@ -278,7 +244,8 @@ uint64_t DataMmapInterface::timestamp_upper_bound(uint64_t total_rows,
     while (lo < hi) {
         const uint64_t mid = (lo + hi) / 2;
         double ts = 0.0;
-        const bool ok = (read_timestamp(mid, ts) == 0);
+        bool ok = true;
+        read_timestamp(mid, ts);
         if (!ok || ts <= target_ts) {
             lo = mid + 1;
         } else {
@@ -288,83 +255,86 @@ uint64_t DataMmapInterface::timestamp_upper_bound(uint64_t total_rows,
     return lo;
 }
 
-int32_t DataMmapInterface::read_timestamp(uint64_t global_row,
-                                          double& out_ts) const {
+void DataMmapInterface::read_timestamp(uint64_t global_row,
+                                      double& out_ts) const {
     ParsedEntry entry{};
-    const int32_t rc = read_entry(global_row, entry);
-    if (rc != 0) {
-        return rc;
-    }
+    read_entry(global_row, entry); // throws on error
     out_ts = entry.timestamp;
-    return file_service::mmap::error_code::kOk;
 }
 
-int32_t DataMmapInterface::read_total_rows(uint64_t& out_total_rows) const {
+void DataMmapInterface::read_total_rows(uint64_t& out_total_rows) const {
     out_total_rows = 0;
     uint32_t segment_count = 0;
     uint32_t mmap_capacity = 0;
-    const int32_t state_rc = read_header_metadata(segment_count, mmap_capacity);
-    if (state_rc != 0) {
-        return state_rc;
-    }
+    read_header_metadata(segment_count, mmap_capacity); // throws on error
 
     uint64_t total = 0;
     for (uint32_t seg_idx = 0; seg_idx < segment_count; ++seg_idx) {
         uint64_t count = 0;
-        const int32_t rc = read_segment_write_count(make_segment_family_path("", seg_idx), count);
-        if (rc != 0) {
-            return rc;
-        }
+        read_segment_write_count(make_segment_family_path("", seg_idx), count); // throws on error
         total += count;
     }
     out_total_rows = total;
-    return 0;
 }
 
-int32_t DataMmapInterface::read_segment_write_count(const std::string& segment_path,
-                                                    uint64_t& out_count) const {
+void DataMmapInterface::read_source_file_path(std::string& out_path) const {
+    out_path.clear();
+
+    const std::string header0_path = make_segment_family_path("", 0);
+    MMapHandle handle = {};
+    mmap_open_ro(header0_path.c_str(), handle);
+
+    if (handle.size < file_service::kMmapHeaderConstractSize) {
+        mmap_close(handle);
+        throw MMapError(std::string("invalid header mmap: ") + header0_path + " size=" + std::to_string(handle.size));
+    }
+
+    const auto* hdr = reinterpret_cast<const file_service::MmapHeaderConstract*>(handle.addr);
+    const size_t raw_len = static_cast<size_t>(hdr->source_file_path_len);
+    const size_t max_len = sizeof(hdr->source_file_path);
+    const size_t bounded_len = (raw_len <= max_len) ? raw_len : max_len;
+    const size_t safe_len = strnlen(hdr->source_file_path, bounded_len);
+    out_path.assign(hdr->source_file_path, safe_len);
+
+    mmap_close(handle);
+}
+
+void DataMmapInterface::read_segment_write_count(const std::string& segment_path,
+                                                 uint64_t& out_count) const {
     out_count = 0;
     if (segment_path.empty()) {
-        return file_service::mmap::error_code::kEmptySegmentPath;
+        throw MMapError(std::string("empty segment path"));
     }
 
     MMapHandle handle = {};
-    if (!mmap_open_ro(segment_path.c_str(), handle)) {
-        CBCM_ERROR("read_segment_write_count mmap not found/open failed path='%s'", segment_path.c_str());
-        return file_service::mmap::error_code::kReadCountOpenFailed;
-    }
+    mmap_open_ro(segment_path.c_str(), handle);
     if (handle.size < file_service::kMmapHeaderConstractSize) {
         mmap_close(handle);
-        return file_service::mmap::error_code::kReadCountHeaderTooSmall;
+        throw MMapError(std::string("invalid header mmap: ") + segment_path + " size=" + std::to_string(handle.size));
     }
 
     const auto* hdr = reinterpret_cast<const file_service::MmapHeaderConstract*>(handle.addr);
     out_count = hdr->write_count;
     mmap_close(handle);
-    return file_service::mmap::error_code::kOk;
 }
 
-int32_t DataMmapInterface::read_segment_capacity(const std::string& segment_path,
-                                                 uint32_t& out_capacity) const {
+void DataMmapInterface::read_segment_capacity(const std::string& segment_path,
+                                              uint32_t& out_capacity) const {
     out_capacity = 0;
     if (segment_path.empty()) {
-        return file_service::mmap::error_code::kEmptyCapacityPath;
+        throw MMapError(std::string("empty capacity path"));
     }
 
     MMapHandle handle = {};
-    if (!mmap_open_ro(segment_path.c_str(), handle)) {
-        CBCM_ERROR("read_segment_capacity mmap not found/open failed path='%s'", segment_path.c_str());
-        return file_service::mmap::error_code::kReadCapacityOpenFailed;
-    }
+    mmap_open_ro(segment_path.c_str(), handle);
     if (handle.size < file_service::kMmapHeaderConstractSize) {
         mmap_close(handle);
-        return file_service::mmap::error_code::kReadCapacityHeaderTooSmall;
+        throw MMapError(std::string("invalid header mmap: ") + segment_path + " size=" + std::to_string(handle.size));
     }
 
     const auto* hdr = reinterpret_cast<const file_service::MmapHeaderConstract*>(handle.addr);
     out_capacity = hdr->capacity;
     mmap_close(handle);
-    return file_service::mmap::error_code::kOk;
 }
 
 std::string DataMmapInterface::normalize_channel_key(const char* ch) {
@@ -398,9 +368,17 @@ void DataMmapInterface::reset() {
     seg_idx_ = 0;
     global_row_idx_ = 0;
     total_written_ = 0;
+    //buckets_ = IndexBuckets{};
     last_timestamp_by_id_ = LastTimestampTable{};
-    last_raw_by_id_.clear();
     channel_to_index_.clear();
+}
+
+// const IndexBuckets& DataMmapInterface::index_buckets() const {
+//     return buckets_;
+// }
+
+void DataMmapInterface::set_source_file_path(std::string file_path) {
+    source_file_path_ = std::move(file_path);
 }
 
 bool DataMmapInterface::is_ready() const {
@@ -409,107 +387,273 @@ bool DataMmapInterface::is_ready() const {
         && seg_entries_ != nullptr;
 }
 
-bool DataMmapInterface::open_segment(uint32_t index) {
+void DataMmapInterface::open_segment(uint32_t index) {
     CBCM_TRACE("DataMmapInterface::open_segment index=%u", index);
     const std::string seg_path = make_segment_family_path("", index);
     const size_t seg_size = file_service::kMmapHeaderConstractSize
         + static_cast<size_t>(kDataSegmentCapacity) * sizeof(LogRecord);
-    if (!mmap_create_rw(seg_path.c_str(), seg_size, seg_handle_)) {
-        CBCM_ERROR("DataMmapInterface::open_segment mmap_create_rw failed path='%s' size=%zu",
-                   seg_path.c_str(),
-                   seg_size);
-        return false;
-    }
+    mmap_create_rw(seg_path.c_str(), seg_size, seg_handle_);
     seg_hdr_ = reinterpret_cast<file_service::MmapHeaderConstract*>(seg_handle_.addr);
     seg_entries_ = reinterpret_cast<LogRecord*>(
         reinterpret_cast<uint8_t*>(seg_handle_.addr) + file_service::kMmapHeaderConstractSize);
     file_service::init_mmap_header_constract(*seg_hdr_, kDataSegmentCapacity, PARSER_STATUS_RUNNING, index + 1);
+    file_service::set_mmap_header_source_file_path(*seg_hdr_, source_file_path_.c_str());
     seg_write_ = 0;
-    return true;
 }
 
-int32_t DataMmapInterface::open_and_init() {
+void DataMmapInterface::open_and_init() {
     reset();
     seg_idx_ = 0;
-    if (!open_segment(seg_idx_)) {
-        CBCM_ERROR("DataMmapInterface::open_and_init failed at first segment");
-        return file_service::mmap::error_code::kOpenInitFailed;
-    }
-    return file_service::mmap::error_code::kOk;
+    open_segment(seg_idx_);
 }
 
-int32_t DataMmapInterface::write_entries(const std::vector<LogRecord>& entries,
-                                       IndexBuckets& buckets) {
+
+// Using the changed detection at the SQL Lite index storage
+// bool changed = false;
+
+// const uint8_t len =
+//     std::min(entry.data_len,
+//              static_cast<uint8_t>(sizeof(PrevRaw::data)));
+
+// auto it = last_raw_by_id_.find(entry.can_id);
+
+// if (it == last_raw_by_id_.end()) {
+//     PrevRaw prev{};
+//     prev.len = len;
+
+//     if (len > 0) {
+//         std::memcpy(prev.data, entry.data, len);
+//     }
+
+//     last_raw_by_id_.emplace(entry.can_id, prev);
+// }
+// else {
+//     const PrevRaw& prev = it->second;
+
+//     changed =
+//         prev.len != len ||
+//         (len > 0 &&
+//          std::memcmp(prev.data, entry.data, len) != 0);
+
+//     it->second.len = len;
+
+//     if (len > 0) {
+//         std::memcpy(it->second.data, entry.data, len);
+//     }
+// }
+uint32_t DataMmapInterface::append_entry(const LogRecord& entry)
+{
     if (!is_ready()) {
-        return file_service::mmap::error_code::kWriterNotReady;
+        throw MMapError("writer not ready");
+    }
+
+    if (seg_write_ >= kDataSegmentCapacity) {
+        close_and_finalize();
+        ++seg_idx_;
+        open_segment(seg_idx_);
+    }
+
+    seg_entries_[seg_write_] = entry;
+
+    const uint32_t row_index = global_row_idx_;
+
+    ++global_row_idx_;
+    ++seg_write_;
+    ++total_written_;
+
+    seg_hdr_->write_count = seg_write_;
+
+    (void)last_timestamp_by_id_.update_and_get_prev(
+        entry.can_id,
+        entry.timestamp);
+
+    return row_index;
+}
+
+void DataMmapInterface::write_entries(const std::vector<LogRecord>& entries) {
+    if (!is_ready()) {
+        throw MMapError(std::string("writer not ready"));
     }
 
     for (const LogRecord& entry : entries) {
-        if (seg_write_ >= kDataSegmentCapacity) {
-            close_and_finalize();
-            ++seg_idx_;
-            if (!open_segment(seg_idx_)) {
-                return file_service::mmap::error_code::kOpenNextSegmentFailed;
-            }
-        }
+        append_entry(entry);
+        // if (seg_write_ >= kDataSegmentCapacity) {
+        //     close_and_finalize();
+        //     ++seg_idx_;
+        //     open_segment(seg_idx_);
+        // }
+        // uint8_t changed = 0;
+        // const uint8_t len = (entry.data_len <= sizeof(PrevRaw::data))
+        //     ? entry.data_len
+        //     : static_cast<uint8_t>(sizeof(PrevRaw::data));
 
-        uint8_t changed = 0;
-        const uint8_t len = (entry.data_len <= sizeof(PrevRaw::data))
-            ? entry.data_len
-            : static_cast<uint8_t>(sizeof(PrevRaw::data));
+        // auto it = last_raw_by_id_.find(entry.can_id);
+        // if (it == last_raw_by_id_.end()) {
+        //     PrevRaw prev;
+        //     prev.len = len;
+        //     if (len > 0) {
+        //         std::memcpy(prev.data, entry.data, len);
+        //     }
+        //     last_raw_by_id_.emplace(entry.can_id, prev);
+        // } else {
+        //     const PrevRaw& prev = it->second;
+        //     const bool is_changed = (prev.len != len)
+        //         || (len > 0 && ::memcmp(prev.data, entry.data, len) != 0);
+        //     changed = is_changed ? 1 : 0;
+        //     it->second.len = len;
+        //     if (len > 0) {
+        //         std::memcpy(it->second.data, entry.data, len);
+        //     }
+        // }
+        // seg_entries_[seg_write_] = entry;
+        // const uint32_t row_idx = global_row_idx_++;
 
-        auto it = last_raw_by_id_.find(entry.can_id);
-        if (it == last_raw_by_id_.end()) {
-            PrevRaw prev;
-            prev.len = len;
-            if (len > 0) {
-                std::memcpy(prev.data, entry.data, len);
-            }
-            last_raw_by_id_.emplace(entry.can_id, prev);
-        } else {
-            const PrevRaw& prev = it->second;
-            const bool is_changed = (prev.len != len)
-                || (len > 0 && std::memcmp(prev.data, entry.data, len) != 0);
-            changed = is_changed ? 1 : 0;
-            it->second.len = len;
-            if (len > 0) {
-                std::memcpy(it->second.data, entry.data, len);
-            }
-        }
+    //     bool changed = result.changed;
+    //     int row_idx = result.row_index;
 
-        seg_entries_[seg_write_] = entry;
-        const uint32_t row_idx = global_row_idx_++;
-        buckets.can_id_rows[entry.can_id].push_back(row_idx);
-        if (changed == 1) {
-            buckets.can_id_changed_rows[entry.can_id].push_back(row_idx);
-        }
-        buckets.can_id_timestamps[entry.can_id].push_back(entry.timestamp);
+    //     buckets_.can_id_rows[entry.can_id].push_back(row_idx);
+    //     if (changed == 1) {
+    //         buckets_.can_id_changed_rows[entry.can_id].push_back(row_idx);
+    //     }
+    //     buckets_.can_id_timestamps[entry.can_id].push_back(entry.timestamp);
 
-        (void)last_timestamp_by_id_.update_and_get_prev(entry.can_id, entry.timestamp);
+    //     (void)last_timestamp_by_id_.update_and_get_prev(entry.can_id, entry.timestamp);
 
-        const std::string channel_key = normalize_channel_key(entry.channel);
-        auto ch_it = channel_to_index_.find(channel_key);
-        uint8_t channel_idx = 0;
-        if (ch_it == channel_to_index_.end()) {
-            channel_idx = static_cast<uint8_t>(buckets.channel_table.size());
-            channel_to_index_.emplace(channel_key, channel_idx);
-            buckets.channel_table.push_back(channel_key);
-            buckets.channel_rows.emplace_back();
-        } else {
-            channel_idx = ch_it->second;
-        }
-        if (channel_idx < buckets.channel_rows.size()) {
-            buckets.channel_rows[channel_idx].push_back(row_idx);
-        }
-        buckets.direction_rows[(entry.direction == 0) ? 0 : 1].push_back(row_idx);
+    //     const std::string channel_key = normalize_channel_key(entry.channel);
+    //     auto ch_it = channel_to_index_.find(channel_key);
+    //     uint8_t channel_idx = 0;
+    //     if (ch_it == channel_to_index_.end()) {
+    //         channel_idx = static_cast<uint8_t>(buckets_.channel_table.size());
+    //         channel_to_index_.emplace(channel_key, channel_idx);
+    //         buckets_.channel_table.push_back(channel_key);
+    //         buckets_.channel_rows.emplace_back();
+    //     } else {
+    //         channel_idx = ch_it->second;
+    //     }
+    //     if (channel_idx < buckets_.channel_rows.size()) {
+    //         buckets_.channel_rows[channel_idx].push_back(row_idx);
+    //     }
+    //     buckets_.direction_rows[(entry.direction == 0) ? 0 : 1].push_back(row_idx);
 
-        ++seg_write_;
-        seg_hdr_->write_count = seg_write_;
-        ++total_written_;
+    //     ++seg_write_;
+    //     seg_hdr_->write_count = seg_write_;
+    //     ++total_written_;
+    // }
     }
 
-    return file_service::mmap::error_code::kOk;
+    (void)file_service::mmap::error_code::kOk;
 }
+
+void DataMmapInterface::update_entry(uint32_t row_index, const LogRecord& record) {
+    uint32_t segment_count = 0;
+    uint32_t mmap_capacity = 0;
+    read_header_metadata(segment_count, mmap_capacity);
+
+    const uint64_t global_row = static_cast<uint64_t>(row_index);
+    const uint64_t seg_idx = global_row / static_cast<uint64_t>(mmap_capacity);
+    const uint64_t local_idx = global_row % static_cast<uint64_t>(mmap_capacity);
+    if (seg_idx >= segment_count) {
+        throw MMapError(std::string("segment index out of range"));
+    }
+
+    LogRecord updated{};
+    updated.timestamp = record.timestamp;
+    updated.can_id = record.can_id;
+    updated.direction = record.direction;
+    updated.data_len = record.data_len;
+    const uint8_t copy_len = (updated.data_len <= sizeof(updated.data))
+        ? updated.data_len
+        : static_cast<uint8_t>(sizeof(updated.data));
+    if (copy_len > 0) {
+        std::memcpy(updated.data, record.data, copy_len);
+    }
+    const std::string channel = normalize_channel_key(record.channel);
+    std::snprintf(updated.channel, sizeof(updated.channel), "%s", channel.c_str());
+
+    const std::string path = make_segment_family_path("", static_cast<uint32_t>(seg_idx));
+    MMapHandle handle = {};
+    mmap_open_rw(path.c_str(), handle);
+
+    if (handle.size < file_service::kMmapHeaderConstractSize) {
+        mmap_close(handle);
+        throw MMapError(std::string("invalid header mmap: ") + path + " size=" + std::to_string(handle.size));
+    }
+
+    const auto* hdr = reinterpret_cast<const file_service::MmapHeaderConstract*>(handle.addr);
+    if (local_idx >= hdr->write_count) {
+        mmap_close(handle);
+        throw MMapError(std::string("read out of range"));
+    }
+
+    auto* row_ptr = reinterpret_cast<LogRecord*>(
+        reinterpret_cast<uint8_t*>(handle.addr) + file_service::kMmapHeaderConstractSize)
+        + local_idx;
+    *row_ptr = updated;
+    mmap_close(handle);
+}
+
+// void DataMmapInterface::update_entries(const std::vector<EntryUpdate>& entries) {
+//     if (entries.empty()) {
+//         return;
+//     }
+
+//     uint32_t segment_count = 0;
+//     uint32_t mmap_capacity = 0;
+//     read_header_metadata(segment_count, mmap_capacity);
+
+//     std::vector<EntryUpdate> ordered = entries;
+//     std::stable_sort(ordered.begin(), ordered.end(), [](const EntryUpdate& a, const EntryUpdate& b) {
+//         return a.row_index < b.row_index;
+//     });
+
+//     for (const EntryUpdate& u : ordered) {
+//         // row_index is 0-based and addresses mmap rows directly.
+//         const uint64_t global_row = static_cast<uint64_t>(u.row_index);
+//         const uint64_t seg_idx = global_row / static_cast<uint64_t>(mmap_capacity);
+//         const uint64_t local_idx = global_row % static_cast<uint64_t>(mmap_capacity);
+//         if (seg_idx >= segment_count) {
+//             throw MMapError(std::string("segment index out of range"));
+//         }
+
+//         LogRecord updated{};
+//         updated.timestamp = u.record.timestamp;
+//         updated.can_id = u.record.can_id;
+//         updated.direction = u.record.direction;
+//         updated.data_len = u.record.data_len;
+//         const uint8_t copy_len = (updated.data_len <= sizeof(updated.data))
+//             ? updated.data_len
+//             : static_cast<uint8_t>(sizeof(updated.data));
+//         if (copy_len > 0) {
+//             std::memcpy(updated.data, u.record.data, copy_len);
+//         }
+//         const std::string channel = normalize_channel_key(u.record.channel);
+//         std::snprintf(updated.channel, sizeof(updated.channel), "%s", channel.c_str());
+
+//         const std::string path = make_segment_family_path("", static_cast<uint32_t>(seg_idx));
+//         MMapHandle handle = {};
+//         mmap_open_rw(path.c_str(), handle);
+
+//         if (handle.size < file_service::kMmapHeaderConstractSize) {
+//             mmap_close(handle);
+//             throw MMapError(std::string("invalid header mmap: ") + path + " size=" + std::to_string(handle.size));
+//         }
+
+//         const auto* hdr = reinterpret_cast<const file_service::MmapHeaderConstract*>(handle.addr);
+//         if (local_idx >= hdr->write_count) {
+//             mmap_close(handle);
+//             throw MMapError(std::string("read out of range"));
+//         }
+
+//         auto* row_ptr = reinterpret_cast<LogRecord*>(
+//             reinterpret_cast<uint8_t*>(handle.addr) + file_service::kMmapHeaderConstractSize)
+//             + local_idx;
+
+//         *row_ptr = updated;
+//         mmap_close(handle);
+//     }
+
+//     (void)file_service::mmap::error_code::kOk;
+// }
 
 void DataMmapInterface::close_and_finalize() {
     CBCM_TRACE("DataMmapInterface::close_and_finalize seg_idx=%u seg_write=%llu",
@@ -549,9 +693,7 @@ uint32_t DataMmapInterface::segment_count() const {
 
     uint32_t count = 0;
     uint32_t capacity = 0;
-    if (read_header_metadata(count, capacity) != 0) {
-        return 0;
-    }
+    read_header_metadata(count, capacity); // throws on error
     return count;
 }
 

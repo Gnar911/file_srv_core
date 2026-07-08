@@ -37,7 +37,8 @@
 #include "mmap/mmap_header_constract.h"
 #include "mmap/index_mmap_layout.h"
 #include "parsed_entry_layout.h"
-#include "parsed_mmap_if.h"
+#include "metadata_storage_if.h"
+#include "asc_reader.h"
 
 extern "C" {
 
@@ -108,23 +109,34 @@ static bool parse_with_fmt(const char* line, size_t len,
     e.changed = 0;
     e.last_timestamp = e.timestamp;
 
-    if (fmt == FMT_CANCMD_T2)
-        return parse_cancmd_t2(line, len, line_num, e);
+    if (fmt == FMT_CANCMD_T2) {
+        const bool ok = parse_cancmd_t2(line, len, e);
+        if (ok) {
+            e.line_number = line_num;
+        }
+        return ok;
+    }
 
     Tok toks[256];
     int ntoks = tokenize(line, len, toks, 256);
     if (ntoks < 4) return false;
 
+    bool ok = false;
     switch (fmt) {
-    case FMT_CANOE:      return parse_canoe       (toks, ntoks, line_num, e);
-    case FMT_CANOE_FULL: return parse_canoe_full  (toks, ntoks, line_num, e);
-    case FMT_CANOE_CMP:  return parse_canoe_compact(toks, ntoks, line_num, e);
-    case FMT_CANCMD:     return parse_cancmd      (toks, ntoks, line_num, e);
-    case FMT_FILTER:     return parse_filter_log  (toks, ntoks, line_num, e);
-    case FMT_CANSUKE:    return parse_cansuke     (toks, ntoks, line_num, e);
-    case FMT_CANCMD_T3:  return parse_cancmd_t3   (toks, ntoks, line_num, e);
-    default:             return false;
+    case FMT_CANOE:      ok = parse_canoe        (toks, ntoks, e); break;
+    case FMT_CANOE_FULL: ok = parse_canoe_full   (toks, ntoks, e); break;
+    case FMT_CANOE_CMP:  ok = parse_canoe_compact(toks, ntoks, e); break;
+    case FMT_CANCMD:     ok = parse_cancmd       (toks, ntoks, e); break;
+    case FMT_FILTER:     ok = parse_filter_log   (toks, ntoks, e); break;
+    case FMT_CANSUKE:    ok = parse_cansuke      (toks, ntoks, e); break;
+    case FMT_CANCMD_T3:  ok = parse_cancmd_t3    (toks, ntoks, e); break;
+    default:             ok = false; break;
     }
+
+    if (ok) {
+        e.line_number = line_num;
+    }
+    return ok;
 }
 
 static void parse_input_parallel(const char* src,
@@ -202,13 +214,7 @@ static void parse_input_parallel(const char* src,
                 ++lnum;
 
                 ParsedEntry e;
-                bool ok = false;
-                if (local_fmt == FMT_UNKNOWN) {
-                    FormatType f2 = detect_and_parse(cur, len, lnum, e);
-                    if (f2 != FMT_UNKNOWN) { local_fmt = f2; ok = true; }
-                } else {
-                    ok = parse_with_fmt(cur, len, local_fmt, lnum, e);
-                }
+                    bool ok = parse_with_fmt(cur, len, local_fmt, lnum, e);
 
                 if (ok) {
                     if (!tout[t].buf.push(e)) {
@@ -224,14 +230,14 @@ static void parse_input_parallel(const char* src,
     for (auto& th : threads) th.join();
 }
 
-static std::vector<ParsedEntry> collect_entries_from_threads(
+static std::vector<LogRecord> collect_entries_from_threads(
     const std::array<ThreadOut, kNumThreads>& tout) {
     size_t total = 0;
     for (int t = 0; t < kNumThreads; ++t) {
         total += tout[t].buf.size;
     }
 
-    std::vector<ParsedEntry> entries;
+    std::vector<LogRecord> entries;
     entries.reserve(total);
     for (int t = 0; t < kNumThreads; ++t) {
         for (uint32_t i = 0; i < tout[t].buf.size; ++i) {
@@ -253,7 +259,7 @@ static std::vector<ParsedEntry> collect_entries_from_threads(
  *   out_count   : receives number of entries
  *   Returns 0 on success, negative on error.
  */
-CP_EXPORT int32_t can_parser_parse_file(const char*    path,
+CP_EXPORT int32_t parse_file(const char*    path,
                                          ParsedEntry**  out_entries,
                                          uint32_t*      out_count) {
     // LOGGING_TRACE_ENABLED;
@@ -281,11 +287,14 @@ CP_EXPORT int32_t can_parser_parse_file(const char*    path,
 
         if (detected == FMT_UNKNOWN) {
             // Detection phase: try all parsers
-            FormatType fmt = detect_and_parse(line, len, line_num, e);
+            FormatType fmt = detect_format(line, len);
             if (fmt != FMT_UNKNOWN) {
-                e.last_timestamp = last_timestamp_by_id.update_and_get_prev(e.can_id, e.timestamp);
-                detected = fmt;
-                buf.push(e);
+                if (parse_with_format(fmt, line, len, e)) {
+                    e.line_number = line_num;
+                    e.last_timestamp = last_timestamp_by_id.update_and_get_prev(e.can_id, e.timestamp);
+                    detected = fmt;
+                    buf.push(e);
+                }
             }
         } else {
             // Hot path: use cached parser
@@ -308,19 +317,19 @@ CP_EXPORT int32_t can_parser_parse_file(const char*    path,
  *   Python detects the format via regex, then passes the FormatType int here
  *   so C++ uses parse_with_fmt for every line (pure hot path, zero detection).
  *
- *   fmt         : FormatType integer (1..8)
+ *   fmt         : FormatType integer (FMT_CANOE..FMT_CANCMD_T3)
  *   path        : UTF-8 file path
  *   out_entries : receives pointer to malloc'd ParsedEntry array (caller frees)
  *   out_count   : receives number of entries
  *   Returns 0 on success, negative on error.
  */
-CP_EXPORT int32_t can_parser_parse_file_with_fmt(const char*    path,
+CP_EXPORT int32_t parse_file_with_fmt(const char*    path,
                                                   int32_t        fmt,
                                                   ParsedEntry**  out_entries,
                                                   uint32_t*      out_count) {
     // LOGGING_TRACE_ENABLED;
     if (!path || !out_entries || !out_count) return -1;
-    if (fmt < 1 || fmt > 8) return -1;  // invalid FormatType
+    if (fmt < FMT_CANOE || fmt > FMT_CANCMD_T3) return -1;  // invalid native parse FormatType
     *out_entries = nullptr;
     *out_count   = 0;
 
@@ -358,32 +367,31 @@ CP_EXPORT int32_t can_parser_parse_file_with_fmt(const char*    path,
  *   Parse a single line (trying all formats). Useful for CSV/Excel per-row calls.
  *   Returns 1 on success, 0 on failure.
  */
-CP_EXPORT int32_t can_parser_parse_line(const char*  line,
-                                         uint32_t     line_num,
-                                         ParsedEntry* out) {
+CP_EXPORT int32_t parse_line(const char*  line,
+                                         FormatType    fmt,
+                                         LogRecord* out) {
     // LOGGING_TRACE_ENABLED;
     if (!line || !out) return 0;
     size_t len = strlen(line);
-    // strip trailing whitespace
     while (len > 0 && (unsigned char)line[len-1] <= ' ') --len;
-    // note: we can't modify line (const); work with len
-    FormatType fmt = detect_and_parse(line, len, line_num, *out);
-    if (fmt != FMT_UNKNOWN) {
-        out->last_timestamp = out->timestamp;
+    int fmt_int = static_cast<int>(fmt);
+    if (fmt_int < FMT_CANOE || fmt_int > FMT_CANCMD_T3) return 0;
+    if (parse_with_format(fmt, line, len, *out)) {
+        return 1;
     }
-    return fmt != FMT_UNKNOWN ? 1 : 0;
+    return 0;
 }
 
 /*
  * can_parser_free_entries
  *   Free the array returned by can_parser_parse_file.
  */
-CP_EXPORT void can_parser_free_entries(ParsedEntry* ptr) {
+CP_EXPORT void free_entries(ParsedEntry* ptr) {
     free(ptr);
 }
 
 CP_EXPORT uint32_t fs_core_abi_version() {
-    return 7;
+    return 8;
 }
 
 /*
@@ -396,56 +404,56 @@ Native derives the index family base path from this token and writes the
 segmented family mmaps directly
 when parsing completes successfully.
 */
-CP_EXPORT int32_t can_parser_run_worker_segmented(const char* file_path,
-                                                  const char* token_id,
-                                                  FormatType fmt) {
+CP_EXPORT int32_t run_worker_segmented(const char* file_path,
+                                                  const char* token_id) {
     LOGGING_TRACE_ENABLED;
     if (!file_path || file_path[0] == '\0' || !token_id || token_id[0] == '\0') {
         return -1;
     }
 
-    MMapHandle in_handle = {};
-    if (!mmap_open_ro(file_path, in_handle)) {
-        return -2;
+    //MMapHandle in_handle = {};
+    //mmap_open_ro(file_path, in_handle);
+
+    //const size_t in_size = in_handle.size;
+    //const char* src = reinterpret_cast<const char*>(in_handle.addr);
+    //const char* end = src + in_size;
+
+    // const FormatType detected = (fmt > 0 && fmt <= 8)
+    //                             ? static_cast<FormatType>(fmt)
+    //                             : FMT_UNKNOWN;
+
+
+    // No need to use thread
+    //std::array<ThreadOut, kNumThreads> tout;
+    //parse_input_parallel(src, end, fmt, tout);
+    //const std::vector<LogRecord> parsed_entries = collect_entries_from_threads(tout);
+
+    // Sequential ASC reader path using ASCReader
+    std::vector<LogRecord> parsed_entries;
+
+    // Try to open file as text stream for ASCReader
+    {
+        std::ifstream ifs(file_path);
+        if (!ifs) {
+            // close mmap and return error
+            // mmap_close(in_handle);
+            return -2;
+        }
+
+        ASCReader reader(ifs, "hex", true);
+        LogRecord rec{};
+        while (reader.next(rec)) {
+            parsed_entries.push_back(rec);
+        }
     }
+    
+    file_service::MetaDataStorageInterface handler{std::string(token_id)};
+    handler.set_file_path(file_path);
+    handler.open_storage();
+    handler.write_entries(parsed_entries);
+    handler.close_storage();
 
-    const size_t in_size = in_handle.size;
-    const char* src = reinterpret_cast<const char*>(in_handle.addr);
-    const char* end = src + in_size;
-
-    const FormatType detected = (fmt > 0 && fmt <= 8)
-                                ? static_cast<FormatType>(fmt)
-                                : FMT_UNKNOWN;
-    std::array<ThreadOut, kNumThreads> tout;
-    parse_input_parallel(src, end, detected, tout);
-    const std::vector<ParsedEntry> parsed_entries = collect_entries_from_threads(tout);
-
-    file_service::ParsedMmapInterface handler{std::string(token_id)};
-    int32_t rc = handler.open_mmap();
-    if (rc != 0) {
-        handler.close_mmap();
-        mmap_close(in_handle);
-        return rc;
-    }
-
-    std::vector<LogRecord> storage_entries;
-    storage_entries.reserve(parsed_entries.size());
-    for (const ParsedEntry& entry : parsed_entries) {
-        LogRecord out{};
-        static_cast<LogRecord&>(out) = static_cast<const LogRecord&>(entry);
-        storage_entries.push_back(out);
-    }
-
-    rc = handler.write_entries(storage_entries);
-    if (rc != 0) {
-        handler.close_mmap();
-        mmap_close(in_handle);
-        return rc;
-    }
-
-    handler.close_mmap();
-
-    mmap_close(in_handle);
+    // mmap_close(in_handle);
     return 0;
 }
 

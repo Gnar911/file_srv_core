@@ -39,9 +39,7 @@ std::vector<std::string> discover_segments(const std::string& base_path) {
 
 int32_t read_header(const std::string& path, SoAHeader& out_hdr) {
     MMapHandle h = {};
-    if (!mmap_open_ro(path.c_str(), h)) {
-        return file_service::mmap::error_code::kMmapOpenFailed;
-    }
+    mmap_open_ro(path.c_str(), h);
     if (h.addr == nullptr || h.size < sizeof(SoAHeader)) {
         mmap_close(h);
         return file_service::mmap::error_code::kHeaderInvalid;
@@ -71,9 +69,7 @@ int32_t read_i64(const std::vector<std::string>& paths,
     }
 
     MMapHandle h = {};
-    if (!mmap_open_ro(paths[static_cast<size_t>(seg_idx)].c_str(), h)) {
-        return file_service::mmap::error_code::kMmapOpenFailed;
-    }
+    mmap_open_ro(paths[static_cast<size_t>(seg_idx)].c_str(), h);
 
     if (h.addr == nullptr || h.size < sizeof(SoAHeader)) {
         mmap_close(h);
@@ -124,9 +120,7 @@ int32_t DecoderRawValueMmap::open_segment_(uint32_t seg_idx) {
     Segment seg;
     const std::string path = make_segment_path(base_path_, seg_idx);
     const size_t size = sizeof(SoAHeader) + static_cast<size_t>(segment_capacity_) * sizeof(int64_t);
-    if (!mmap_create_rw(path.c_str(), size, seg.handle)) {
-        return file_service::mmap::error_code::kMmapOpenFailed;
-    }
+    mmap_create_rw(path.c_str(), size, seg.handle);
     seg.header = reinterpret_cast<SoAHeader*>(seg.handle.addr);
     seg.values = reinterpret_cast<int64_t*>(reinterpret_cast<uint8_t*>(seg.handle.addr) + sizeof(SoAHeader));
     seg.header->sample_count = 0;

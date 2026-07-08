@@ -16,6 +16,28 @@ void init_mmap_header_constract(MmapHeaderConstract& header, uint32_t capacity, 
     header.status = status;
     header.segment_count = segment_count;
     std::memset(header.reserved, 0, sizeof(header.reserved));
+    header.source_file_path_len = 0;
+    std::memset(header.source_file_path, 0, sizeof(header.source_file_path));
+}
+
+void set_mmap_header_source_file_path(MmapHeaderConstract& header, const char* file_path) noexcept {
+    header.source_file_path_len = 0;
+    std::memset(header.source_file_path, 0, sizeof(header.source_file_path));
+
+    if (file_path == nullptr || file_path[0] == '\0') {
+        return;
+    }
+
+    const size_t src_len = std::strlen(file_path);
+    const size_t copy_len = (src_len < sizeof(header.source_file_path) - 1)
+        ? src_len
+        : (sizeof(header.source_file_path) - 1);
+
+    if (copy_len > 0) {
+        std::memcpy(header.source_file_path, file_path, copy_len);
+    }
+    header.source_file_path[copy_len] = '\0';
+    header.source_file_path_len = static_cast<uint16_t>(copy_len);
 }
 
 } // namespace file_service

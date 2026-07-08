@@ -59,9 +59,7 @@ bool DirectionIndexMmapInterface::open_segment(uint32_t index) {
     const size_t dir_size = sizeof(DirectionIndexHeader)
         + static_cast<size_t>(kDirectionIndexMaxDirections) * sizeof(DirectionFilter)
         + static_cast<size_t>(kDirectionIndexSegmentCapacity) * sizeof(uint32_t);
-    if (!mmap_create_rw(dir_path.c_str(), dir_size, handle_)) {
-        return false;
-    }
+    mmap_create_rw(dir_path.c_str(), dir_size, handle_);
 
     hdr_ = reinterpret_cast<DirectionIndexHeader*>(handle_.addr);
     hdr_->direction_count = 0;
@@ -184,9 +182,7 @@ void DirectionIndexMmapInterface::ensure_direction_catalog_loaded() {
         const std::string seg_path = make_segment_family_path(".direction", seg_idx);
 
         MMapHandle seg_handle = {};
-        if (!mmap_open_ro(seg_path.c_str(), seg_handle)) {
-            continue;
-        }
+        mmap_open_ro(seg_path.c_str(), seg_handle);
 
         const auto* base = reinterpret_cast<const uint8_t*>(seg_handle.addr);
         const size_t bytes = seg_handle.size;
@@ -273,10 +269,7 @@ std::vector<uint32_t> DirectionIndexMmapInterface::read_direction_row_page_inter
         const size_t read_count = std::min(remaining, seg_count - skip_in_seg);
 
         MMapHandle seg_handle = {};
-        if (!mmap_open_ro(seg.seg_path.c_str(), seg_handle)) {
-            skipped += seg_count;
-            continue;
-        }
+        mmap_open_ro(seg.seg_path.c_str(), seg_handle);
 
         const auto* base = reinterpret_cast<const uint8_t*>(seg_handle.addr);
         const size_t bytes = seg_handle.size;
@@ -380,9 +373,7 @@ std::vector<uint32_t> DirectionIndexMmapInterface::merge_directions_page_interna
             return &it->second;
         }
         MMapHandle handle = {};
-        if (!mmap_open_ro(seg_path.c_str(), handle)) {
-            return nullptr;
-        }
+        mmap_open_ro(seg_path.c_str(), handle);
         auto inserted = mmap_cache.emplace(seg_path, handle);
         return &inserted.first->second;
     };
@@ -514,9 +505,7 @@ uint32_t DirectionIndexMmapInterface::segment_count() const {
 
     const std::string header0_path = make_segment_family_path(".direction", 0);
     MMapHandle header0 = {};
-    if (!mmap_open_ro(header0_path.c_str(), header0)) {
-        return 0;
-    }
+    mmap_open_ro(header0_path.c_str(), header0);
     if (header0.addr == nullptr || header0.size < sizeof(DirectionIndexHeader)) {
         mmap_close(header0);
         return 0;

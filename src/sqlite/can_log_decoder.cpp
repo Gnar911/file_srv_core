@@ -5,13 +5,14 @@
 #include <cstring>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "can_analyzer_log.h"
 #include "can_decoder.h"
 #include "can_log_decoder.h"
 #include "sqlite/sql_decode_if.h"
-#include "mmap/parsed_mmap_if.h"
+#include "metadata_storage_if.h"
 
 #ifndef LOGGING_TRACE_ENABLED
 #if defined(__LW_TRACE)
@@ -27,6 +28,11 @@ namespace {
 
 constexpr int32_t kDecodeRcNullToken = -301;
 constexpr int32_t kDecodeRcReadPageEmpty = -302;
+
+CanDecoder& decoder_singleton() {
+    static CanDecoder decoder;
+    return decoder;
+}
 
 DecodeError make_decode_error(int32_t rc, const std::string& message) {
 	DecodeError error{};
@@ -87,12 +93,15 @@ DecodeError process_page(
 
 } // namespace
 
-DecodeError can_decoder_run(const file_service::ParsedMmapInterface& parsed_mmap, const CanDecoder& dcder) {
+DecodeError can_decoder_run(const file_service::MetaDataStorageInterface& parsed_mmap, CanDatabaseModel model) {
     LOGGING_TRACE_ENABLED;
 
-    if (!dcder.is_loaded()) {
-        CBCM_ERROR("can_decoder_run: DB not loaded - call can_decoder_load_db first");
-        return make_decode_error(-3, "can_decoder_run: DB not loaded - call can_decoder_load_db first");
+    CanDecoder& decoder = decoder_singleton();
+    decoder.free_db();
+    const int32_t load_rc = decoder.load_db(model);
+    if (load_rc != 0) {
+        CBCM_ERROR("can_decoder_run: failed to load CanDatabaseModel (rc=%d)", load_rc);
+        return make_decode_error(load_rc, "can_decoder_run: failed to load CanDatabaseModel");
     }
 
     const uint64_t entry_count = parsed_mmap.fetch_count();
@@ -148,7 +157,7 @@ DecodeError can_decoder_run(const file_service::ParsedMmapInterface& parsed_mmap
         const DecodeError process_rc = process_page(
             page,
             start,
-            dcder,
+            decoder,
             signal_db,
             last_raw_by_signal,
             has_last_raw_by_signal);
@@ -169,21 +178,21 @@ DecodeError can_decoder_run(const file_service::ParsedMmapInterface& parsed_mmap
     return make_decode_error(0, "");
 }
 
-DecodeError can_decoder_run(const char* parsed_mmap_token, const CanDecoder& decoder) {
+DecodeError can_decoder_run(const char* parsed_mmap_token, CanDatabaseModel model) {
     if (!parsed_mmap_token) {
         return make_decode_error(kDecodeRcNullToken, "parsed_mmap_token is null");
     }
 
-    file_service::ParsedMmapInterface parsed_mmap(parsed_mmap_token);
-    return can_decoder_run(parsed_mmap, decoder);
+    file_service::MetaDataStorageInterface parsed_mmap(parsed_mmap_token);
+    return can_decoder_run(parsed_mmap, std::move(model));
 }
 
 extern "C" {
 
 CD_EXPORT DecodeError can_decoder_run(const char* parsed_mmap_token) {
     (void)parsed_mmap_token;
-    CBCM_ERROR("can_decoder_run(const char*): deprecated without decoder instance; use can_decoder_run(token, decoder)");
-    return make_decode_error(-3, "can_decoder_run(const char*): deprecated without decoder instance; use can_decoder_run(token, decoder)");
+    CBCM_ERROR("can_decoder_run(const char*): deprecated without model; use can_decoder_run(token, model)");
+    return make_decode_error(-3, "can_decoder_run(const char*): deprecated without model; use can_decoder_run(token, model)");
 }
 
 } /* extern "C" */

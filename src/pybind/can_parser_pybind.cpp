@@ -16,7 +16,7 @@ std::vector<ParsedEntry> copy_and_free_entries(ParsedEntry* entries, uint32_t co
     std::vector<ParsedEntry> result;
     if (entries == nullptr || count == 0) {
         if (entries != nullptr) {
-            can_parser_free_entries(entries);
+            free_entries(entries);
         }
         return result;
     }
@@ -25,14 +25,14 @@ std::vector<ParsedEntry> copy_and_free_entries(ParsedEntry* entries, uint32_t co
     for (uint32_t i = 0; i < count; ++i) {
         result.push_back(entries[i]);
     }
-    can_parser_free_entries(entries);
+    free_entries(entries);
     return result;
 }
 }  // namespace
 
 void bind_can_parser(py::module_& m) {
     m.def("run_worker_segmented", [](const std::string& file_path, const std::string& token_id, int32_t fmt) {
-        return can_parser_run_worker_segmented(
+        return run_worker_segmented(
             file_path.c_str(),
             token_id.c_str(),
             static_cast<FormatType>(fmt));
@@ -41,7 +41,7 @@ void bind_can_parser(py::module_& m) {
     m.def("parse_file", [](const std::string& path) {
         ParsedEntry* out_entries = nullptr;
         uint32_t out_count = 0;
-        const int32_t rc = can_parser_parse_file(path.c_str(), &out_entries, &out_count);
+        const int32_t rc = parse_file(path.c_str(), &out_entries, &out_count);
         if (rc != 0) {
             throw std::runtime_error("can_parser_parse_file failed with rc=" + std::to_string(rc));
         }
@@ -51,21 +51,34 @@ void bind_can_parser(py::module_& m) {
     m.def("parse_file_with_fmt", [](const std::string& path, int32_t fmt) {
         ParsedEntry* out_entries = nullptr;
         uint32_t out_count = 0;
-        const int32_t rc = can_parser_parse_file_with_fmt(path.c_str(), fmt, &out_entries, &out_count);
+        const int32_t rc = parse_file_with_fmt(path.c_str(), fmt, &out_entries, &out_count);
         if (rc != 0) {
             throw std::runtime_error("can_parser_parse_file_with_fmt failed with rc=" + std::to_string(rc));
         }
         return copy_and_free_entries(out_entries, out_count);
     }, py::arg("path"), py::arg("fmt"));
 
-    m.def("parse_line", [](const std::string& line, uint32_t line_num) -> py::object {
+    m.def("parse_line", [](const std::string& line, int32_t fmt) -> py::object {
         ParsedEntry out{};
-        const int32_t ok = can_parser_parse_line(line.c_str(), line_num, &out);
+        const int32_t ok = parse_line(line.c_str(), static_cast<FormatType>(fmt), reinterpret_cast<LogRecord*>(&out));
         if (ok == 1) {
             return py::cast(out);
         }
         return py::none();
-    }, py::arg("line"), py::arg("line_num") = 0);
+    }, py::arg("line"), py::arg("fmt"));
+
+    py::enum_<FormatType>(m, "FormatType")
+        .value("UNKNOWN", FMT_UNKNOWN)
+        .value("CANOE", FMT_CANOE)
+        .value("CANOE_FULL", FMT_CANOE_FULL)
+        .value("CANOE_CMP", FMT_CANOE_CMP)
+        .value("CANCMD", FMT_CANCMD)
+        .value("FILTER", FMT_FILTER)
+        .value("CANSUKE", FMT_CANSUKE)
+        .value("CANCMD_T2", FMT_CANCMD_T2)
+        .value("CANCMD_T3", FMT_CANCMD_T3)
+        .value("ASC", FMT_ASC)
+        .value("BLF", FMT_BLF);
 
     m.attr("PARSER_STATUS_RUNNING") = py::int_(static_cast<uint32_t>(PARSER_STATUS_RUNNING));
     m.attr("PARSER_STATUS_DONE") = py::int_(static_cast<uint32_t>(PARSER_STATUS_DONE));
@@ -80,4 +93,6 @@ void bind_can_parser(py::module_& m) {
     m.attr("FMT_CANSUKE") = py::int_(static_cast<int>(FMT_CANSUKE));
     m.attr("FMT_CANCMD_T2") = py::int_(static_cast<int>(FMT_CANCMD_T2));
     m.attr("FMT_CANCMD_T3") = py::int_(static_cast<int>(FMT_CANCMD_T3));
+    m.attr("FMT_ASC") = py::int_(static_cast<int>(FMT_ASC));
+    m.attr("FMT_BLF") = py::int_(static_cast<int>(FMT_BLF));
 }

@@ -12,7 +12,7 @@
 #include "can_decoder.h"
 #include "can_log_decoder.h"
 #include "parsed_entry_layout.h"
-#include "parsed_mmap_if.h"
+#include "metadata_storage_if.h"
 #include "sqlite/sql_decode_if.h"
 
 namespace {
@@ -57,33 +57,17 @@ LogRecord make_entry(uint32_t line, uint32_t can_id, uint8_t b0) {
 
 namespace file_service {
 
-class ParsedMmapInterfaceTestAccessor {
+class MetaDataStorageInterfaceTestAccessor {
 public:
-    static std::vector<std::string> data_segment_paths(const ParsedMmapInterface& iface) {
+    static std::vector<std::string> data_segment_paths(const MetaDataStorageInterface& iface) {
         return iface.data_segment_paths();
     }
 
-    static std::vector<std::string> canid_segment_paths(const ParsedMmapInterface& iface) {
-        return iface.canid_segment_paths();
-    }
-
-    static std::vector<std::string> channel_segment_paths(const ParsedMmapInterface& iface) {
-        return iface.channel_segment_paths();
-    }
-
-    static std::vector<std::string> direction_segment_paths(const ParsedMmapInterface& iface) {
-        return iface.direction_segment_paths();
-    }
-
-    static ParsedMmapSegmentPaths all_segment_paths(const ParsedMmapInterface& iface) {
-        return iface.all_segment_paths();
-    }
-
-    static uint64_t total_entries(const ParsedMmapInterface& iface) {
+    static uint64_t total_entries(const MetaDataStorageInterface& iface) {
         return iface.data_.total_written();
     }
 
-    static int32_t first_data_segment_capacity(const ParsedMmapInterface& iface, uint32_t& out_capacity) {
+    static int32_t first_data_segment_capacity(const MetaDataStorageInterface& iface, uint32_t& out_capacity) {
         const auto paths = iface.data_segment_paths();
         if (paths.empty()) {
             out_capacity = 0;
@@ -92,7 +76,7 @@ public:
         return iface.data_.read_segment_capacity(paths.front(), out_capacity);
     }
 
-    static int32_t first_data_segment_write_count(const ParsedMmapInterface& iface, uint64_t& out_count) {
+    static int32_t first_data_segment_write_count(const MetaDataStorageInterface& iface, uint64_t& out_count) {
         const auto paths = iface.data_segment_paths();
         if (paths.empty()) {
             out_count = 0;
@@ -111,26 +95,14 @@ TEST(ParsedMmapInterfaceApi, SegmentDiscovery) {
 
     const std::filesystem::path token_path = g_token_path;
 
-    file_service::ParsedMmapInterface iface(token_path.string());
+    file_service::MetaDataStorageInterface iface(token_path.string());
 
-    const auto all_paths = file_service::ParsedMmapInterfaceTestAccessor::all_segment_paths(iface);
-    EXPECT_FALSE(all_paths.data.empty());
-    EXPECT_FALSE(all_paths.canid.empty());
-    EXPECT_FALSE(all_paths.channel.empty());
-    EXPECT_FALSE(all_paths.direction.empty());
+    const auto data_paths = file_service::MetaDataStorageInterfaceTestAccessor::data_segment_paths(iface);
+    EXPECT_FALSE(data_paths.empty());
 
     std::cout << "[SegmentDiscovery] token=" << token_path.string() << "\n";
-    for (const auto& p : all_paths.data) {
+    for (const auto& p : data_paths) {
         std::cout << "[SegmentDiscovery] data_segment=" << p << "\n";
-    }
-    for (const auto& p : all_paths.canid) {
-        std::cout << "[SegmentDiscovery] canid_segment=" << p << "\n";
-    }
-    for (const auto& p : all_paths.channel) {
-        std::cout << "[SegmentDiscovery] channel_segment=" << p << "\n";
-    }
-    for (const auto& p : all_paths.direction) {
-        std::cout << "[SegmentDiscovery] direction_segment=" << p << "\n";
     }
 
     const uint64_t total_entries = iface.fetch_count();
@@ -139,8 +111,8 @@ TEST(ParsedMmapInterfaceApi, SegmentDiscovery) {
 
     uint32_t capacity = 0;
     uint64_t write_count = 0;
-    EXPECT_EQ(file_service::ParsedMmapInterfaceTestAccessor::first_data_segment_capacity(iface, capacity), 0);
-    EXPECT_EQ(file_service::ParsedMmapInterfaceTestAccessor::first_data_segment_write_count(iface, write_count), 0);
+    EXPECT_EQ(file_service::MetaDataStorageInterfaceTestAccessor::first_data_segment_capacity(iface, capacity), 0);
+    EXPECT_EQ(file_service::MetaDataStorageInterfaceTestAccessor::first_data_segment_write_count(iface, write_count), 0);
     EXPECT_GT(capacity, 0U);
     EXPECT_GT(write_count, 0U);
     std::cout << "[SegmentDiscovery] first_segment_capacity=" << capacity << "\n";
@@ -149,8 +121,6 @@ TEST(ParsedMmapInterfaceApi, SegmentDiscovery) {
 
 TEST(CanDecoderApiMock, DecodeEntryUsesTextSignalName) {
     CanDecoder decoder;
-    decoder.free_db();
-
     MessageDef msg{};
     msg.can_id = 0x123;
     msg.signal_count = 1;
@@ -191,15 +161,15 @@ TEST(CanDecoderApiMock, RunDecodeSmokeWritesSqliteData) {
     const std::filesystem::path dir = make_test_temp_dir("run_decode_smoke");
     const std::filesystem::path token_path = dir / "token_run_decode";
 
-    file_service::ParsedMmapInterface parsed(token_path.string());
-    ASSERT_EQ(parsed.open_mmap(), 0);
+    file_service::MetaDataStorageInterface parsed(token_path.string());
+    parsed.open_mmap();
 
     std::vector<LogRecord> entries;
     entries.push_back(make_entry(1, 0x321, 10));
     entries.push_back(make_entry(2, 0x321, 10));
     entries.push_back(make_entry(3, 0x321, 20));
 
-    ASSERT_EQ(parsed.write_entries(entries), 0);
+    parsed.write_entries(entries);
     parsed.close_mmap();
 
     CanDecoder decoder;
@@ -223,8 +193,7 @@ TEST(CanDecoderApiMock, RunDecodeSmokeWritesSqliteData) {
     model.messages.push_back(msg);
     model.signals.push_back(sig);
     model.canid_to_msg[msg.can_id] = 0;
-    ASSERT_EQ(decoder.load_db(model), 0);
-    ASSERT_EQ(can_decoder_run(token_path.string().c_str(), decoder).rc, 0);
+    ASSERT_EQ(can_decoder_run(token_path.string().c_str(), model).rc, 0);
 
     const std::filesystem::path db_path = token_path.string() + ".decoded.sqlite";
     EXPECT_TRUE(std::filesystem::exists(db_path));
@@ -255,7 +224,6 @@ TEST(CanDecoderApiMock, RunDecodeSmokeWritesSqliteData) {
     EXPECT_EQ(chunk.changed_row_index[0], 2U);
 
     db.close();
-    decoder.free_db();
     cleanup_prefix_files(dir, token_path.filename().string());
 }
 

@@ -50,9 +50,7 @@ bool CanIdIndexMmapInterface::open_segment(uint32_t index) {
         + static_cast<size_t>(kIndexSegmentCapacity) * sizeof(uint32_t)
         + static_cast<size_t>(kIndexSegmentCapacity) * sizeof(uint32_t)
         + static_cast<size_t>(kIndexSegmentCapacity) * sizeof(double);
-    if (!mmap_create_rw(idx_path.c_str(), idx_size, handle_)) {
-        return false;
-    }
+    mmap_create_rw(idx_path.c_str(), idx_size, handle_);
 
     hdr_ = reinterpret_cast<IndexHeader*>(handle_.addr);
     hdr_->can_id_count = 0;
@@ -244,9 +242,7 @@ void CanIdIndexMmapInterface::ensure_can_id_catalog_loaded() {
         const std::string seg_path = make_segment_family_path("", seg_idx);
 
         MMapHandle seg_handle = {};
-        if (!mmap_open_ro(seg_path.c_str(), seg_handle)) {
-            continue;
-        }
+        mmap_open_ro(seg_path.c_str(), seg_handle);
 
         const auto* base = reinterpret_cast<const uint8_t*>(seg_handle.addr);
         const size_t bytes = seg_handle.size;
@@ -361,10 +357,7 @@ std::vector<uint32_t> CanIdIndexMmapInterface::read_row_page_internal(
         const size_t read_count = std::min(remaining, seg_count - skip_in_seg);
 
         MMapHandle seg_handle = {};
-        if (!mmap_open_ro(seg.seg_path.c_str(), seg_handle)) {
-            skipped += seg_count;
-            continue;
-        }
+        mmap_open_ro(seg.seg_path.c_str(), seg_handle);
 
         const auto* base = reinterpret_cast<const uint8_t*>(seg_handle.addr);
         const size_t bytes = seg_handle.size;
@@ -428,10 +421,7 @@ std::vector<uint32_t> CanIdIndexMmapInterface::read_changed_row_page_internal(
         const size_t read_count = std::min(remaining, seg_count - skip_in_seg);
 
         MMapHandle seg_handle = {};
-        if (!mmap_open_ro(seg.seg_path.c_str(), seg_handle)) {
-            skipped += seg_count;
-            continue;
-        }
+        mmap_open_ro(seg.seg_path.c_str(), seg_handle);
 
         const auto* base = reinterpret_cast<const uint8_t*>(seg_handle.addr);
         const size_t bytes = seg_handle.size;
@@ -544,9 +534,7 @@ std::vector<uint32_t> CanIdIndexMmapInterface::merge_can_ids_page_internal(
             return &it->second;
         }
         MMapHandle handle = {};
-        if (!mmap_open_ro(seg_path.c_str(), handle)) {
-            return nullptr;
-        }
+        mmap_open_ro(seg_path.c_str(), handle);
         auto inserted = mmap_cache.emplace(seg_path, handle);
         return &inserted.first->second;
     };
@@ -684,9 +672,7 @@ uint32_t CanIdIndexMmapInterface::segment_count() const {
 
     const std::string header0_path = make_segment_family_path("", 0);
     MMapHandle header0 = {};
-    if (!mmap_open_ro(header0_path.c_str(), header0)) {
-        return 0;
-    }
+    mmap_open_ro(header0_path.c_str(), header0);
     if (header0.addr == nullptr || header0.size < sizeof(IndexHeader)) {
         mmap_close(header0);
         return 0;

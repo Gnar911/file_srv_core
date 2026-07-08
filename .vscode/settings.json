@@ -1,0 +1,10 @@
+{
+    "cmake.sourceDirectory": "/home/gnar911/Desktop/20260516_JOBS_INSPECTOR/project/file_srv_core/src",
+    "python-envs.pythonProjects": [
+        {
+            "path": ".",
+            "envManager": "ms-python.python:system",
+            "packageManager": "ms-python.python:pip"
+        }
+    ]
+}

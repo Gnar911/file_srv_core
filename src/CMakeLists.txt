@@ -21,14 +21,13 @@ endif()
 
 add_library(file_service_core SHARED
     can_parser.cpp
-    mmap/parsed_mmap.cpp
+    metadata_storage.cpp
     mmap/mmap_data.cpp
-    mmap/mmap_canid_idx.cpp
-    mmap/mmap_chnl_idx.cpp
-    mmap/mmap_dir_idx.cpp
     can_decoder.cpp
     sqlite/can_log_decoder.cpp
     sqlite/sql_decode.cpp
+    sqlite/sqlite_wrapper.cpp
+    sqlite/log_index_db.cpp
     mmap/mmap_wrapper.cpp
     mmap/mmap_header_constract.cpp
 )
@@ -89,66 +88,47 @@ if(BUILD_TESTING)
     find_package(GTest REQUIRED)
     include(GoogleTest)
 
-    add_executable(file_service_core_tests
-        tests/out_segments_path_test.cpp
+    # Consolidate common test sources into a static library so tests don't
+    # recompile the same production sources repeatedly.
+    add_library(file_service_test_lib STATIC
         can_decoder.cpp
         sqlite/can_log_decoder.cpp
         sqlite/sql_decode.cpp
-        mmap/parsed_mmap.cpp
+        sqlite/sqlite_wrapper.cpp
+        sqlite/log_index_db.cpp
+        metadata_storage.cpp
         mmap/mmap_data.cpp
-        mmap/mmap_canid_idx.cpp
-        mmap/mmap_chnl_idx.cpp
-        mmap/mmap_dir_idx.cpp
         mmap/mmap_wrapper.cpp
         mmap/mmap_header_constract.cpp
     )
 
-    target_link_libraries(file_service_core_tests PRIVATE
-        GTest::gtest
-    )
-
-    if(UNIX AND EXISTS "/lib/x86_64-linux-gnu/libsqlite3.so.0")
-        target_link_libraries(file_service_core_tests PRIVATE /lib/x86_64-linux-gnu/libsqlite3.so.0)
-    else()
-        target_link_libraries(file_service_core_tests PRIVATE sqlite3)
-    endif()
-
-    target_include_directories(file_service_core_tests PRIVATE
+    target_include_directories(file_service_test_lib PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/mmap
     )
 
-    gtest_discover_tests(file_service_core_tests)
-
-    add_executable(test_decode_function
-        tests/test_decode_function.cpp
-        can_decoder.cpp
-        sqlite/can_log_decoder.cpp
-        sqlite/sql_decode.cpp
-        mmap/parsed_mmap.cpp
-        mmap/mmap_data.cpp
-        mmap/mmap_canid_idx.cpp
-        mmap/mmap_chnl_idx.cpp
-        mmap/mmap_dir_idx.cpp
-        #parsed_entry_layout.cpp
-        mmap/mmap_wrapper.cpp
-        mmap/mmap_header_constract.cpp
-    )
-
-    target_link_libraries(test_decode_function PRIVATE
-        GTest::gtest
-    )
-
     if(UNIX AND EXISTS "/lib/x86_64-linux-gnu/libsqlite3.so.0")
-        target_link_libraries(test_decode_function PRIVATE /lib/x86_64-linux-gnu/libsqlite3.so.0)
+        target_link_libraries(file_service_test_lib PUBLIC /lib/x86_64-linux-gnu/libsqlite3.so.0)
     else()
-        target_link_libraries(test_decode_function PRIVATE sqlite3)
+        target_link_libraries(file_service_test_lib PUBLIC sqlite3)
     endif()
 
-    target_include_directories(test_decode_function PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/mmap
-    )
+    # Helper to create test executables that link the common test library
+    function(add_file_service_test targetName)
+        add_executable(${targetName} ${ARGN})
+        target_link_libraries(${targetName} PRIVATE file_service_test_lib GTest::gtest)
+        target_include_directories(${targetName} PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/mmap
+        )
+        gtest_discover_tests(${targetName})
+    endfunction()
 
-    gtest_discover_tests(test_decode_function)
+    # Tests (only provide test-specific sources)
+    add_file_service_test(file_service_core_tests tests/out_segments_path_test.cpp)
+    add_file_service_test(test_decode_function tests/test_decode_function.cpp)
+    add_file_service_test(asc_reader_gtest tests/test_asc_reader.cpp asc_reader.cpp)
+    add_file_service_test(run_worker_segmented_test tests/test_run_worker_segmented.cpp can_parser.cpp asc_reader.cpp)
+    add_file_service_test(log_index_db_test tests/test_log_index_db.cpp)
+    add_file_service_test(mmap_data_test tests/test_mmap_data.cpp)
 endif()

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "can_decoder.h"
 
 #ifndef CD_EXPORT
 #if defined(_WIN32)
@@ -11,9 +12,8 @@
 #endif
 
 #ifdef __cplusplus
-class CanDecoder;
 namespace file_service {
-class ParsedMmapInterface;
+class MetaDataStorageInterface;
 }
 
 struct DecodeError {
@@ -21,10 +21,10 @@ struct DecodeError {
 	char error_message[512] = {0};
 };
 
-DecodeError can_decoder_run(const file_service::ParsedMmapInterface& parsed_mmap,
-						const CanDecoder& decoder);
+DecodeError can_decoder_run(const file_service::MetaDataStorageInterface& parsed_mmap,
+						CanDatabaseModel model);
 DecodeError can_decoder_run(const char* parsed_mmap_token,
-						const CanDecoder& decoder);
+						CanDatabaseModel model);
 
 extern "C" {
 #endif

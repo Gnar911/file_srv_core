@@ -45,9 +45,7 @@ int32_t read_typed_at(const std::vector<std::string>& paths,
     }
 
     MMapHandle handle = {};
-    if (!mmap_open_ro(paths[static_cast<size_t>(seg_idx)].c_str(), handle)) {
-        return kDecoderMmapOpenFailed;
-    }
+    mmap_open_ro(paths[static_cast<size_t>(seg_idx)].c_str(), handle);
 
     if (handle.addr == nullptr || handle.size < sizeof(SoAHeader)) {
         mmap_close(handle);
@@ -94,9 +92,7 @@ int32_t DecodedMmapWriteContext::open_dir_segment_(uint32_t seg_idx) {
     const std::string path = stem + num;
     const size_t seg_size = sizeof(SignalDirHeader)
         + static_cast<size_t>(dir_segment_capacity_) * sizeof(SignalDirectoryEntry);
-    if (!mmap_create_rw(path.c_str(), seg_size, seg.handle)) {
-        return -4;
-    }
+    mmap_create_rw(path.c_str(), seg_size, seg.handle);
     seg.header = reinterpret_cast<SignalDirHeader*>(seg.handle.addr);
     seg.entries = reinterpret_cast<SignalDirectoryEntry*>(
         reinterpret_cast<uint8_t*>(seg.handle.addr) + sizeof(SignalDirHeader));
@@ -334,9 +330,7 @@ int32_t DecodedMmapInterface::load_directory_cache() {
     size_t global_idx = 0;
     for (const std::string& p : paths_.signal_dir) {
         MMapHandle handle = {};
-        if (!mmap_open_ro(p.c_str(), handle)) {
-            return kDecoderMmapOpenFailed;
-        }
+        mmap_open_ro(p.c_str(), handle);
 
         if (handle.addr == nullptr || handle.size < sizeof(SignalDirHeader)) {
             mmap_close(handle);
@@ -372,9 +366,7 @@ int32_t DecodedMmapInterface::read_sample_capacity(const std::vector<std::string
     }
 
     MMapHandle handle = {};
-    if (!mmap_open_ro(paths.front().c_str(), handle)) {
-        return kDecoderMmapOpenFailed;
-    }
+    mmap_open_ro(paths.front().c_str(), handle);
 
     if (handle.addr == nullptr || handle.size < sizeof(SoAHeader)) {
         mmap_close(handle);

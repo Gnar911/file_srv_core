@@ -1,5 +1,6 @@
 #include <string>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 #include <pybind11/pybind11.h>
@@ -9,12 +10,12 @@
 #include "can_parser.h"
 #include "can_decoder.h"
 #include "can_log_decoder.h"
-#include "parsed_mmap_if.h"
+#include "metadata_storage_if.h"
 
 namespace py = pybind11;
 
 PYBIND11_MODULE(fs_core, m) {
-    m.doc() = "pybind11 bindings for ParsedMmapInterface";
+    m.doc() = "pybind11 bindings for MetaDataStorageInterface";
 
      m.def("abi_version", []() {
           return fs_core_abi_version();
@@ -56,6 +57,11 @@ PYBIND11_MODULE(fs_core, m) {
         .def_readwrite("last_timestamp", &ParsedEntry::last_timestamp)
         .def_readwrite("changed", &ParsedEntry::changed);
 
+     py::class_<EntryUpdate>(m, "EntryUpdate")
+          .def(py::init<>())
+          .def_readwrite("row_index", &EntryUpdate::row_index)
+          .def_readwrite("record", &EntryUpdate::record);
+
      bind_can_parser(m);
 
      py::class_<MessageDef>(m, "MessageDef")
@@ -82,6 +88,12 @@ PYBIND11_MODULE(fs_core, m) {
           .def_readwrite("signal_name", &DecodedSignal::signal_name)
           .def_readwrite("raw_value", &DecodedSignal::raw_value)
           .def_readwrite("phys_value", &DecodedSignal::phys_value);
+
+     py::class_<CanDatabaseModel>(m, "CanDatabaseModel")
+          .def(py::init<>())
+          .def_readwrite("messages", &CanDatabaseModel::messages)
+          .def_readwrite("signals", &CanDatabaseModel::signals)
+          .def_readwrite("canid_to_msg", &CanDatabaseModel::canid_to_msg);
 
      py::class_<DecodeError>(m, "DecodeError")
           .def(py::init<>())
@@ -118,44 +130,47 @@ PYBIND11_MODULE(fs_core, m) {
               .def("decode_entry", py::overload_cast<const LogRecord&, uint32_t>(&CanDecoder::decode_entry, py::const_),
                    py::arg("entry"), py::arg("max_signals") = 0);
 
-     m.def("can_decoder_run", [](const std::string& parsed_mmap_token, const CanDecoder& decoder) {
-          return ::can_decoder_run(parsed_mmap_token.c_str(), decoder);
-     }, py::arg("parsed_mmap_token"), py::arg("decoder"));
+     m.def("can_decoder_run", [](const std::string& parsed_mmap_token, CanDatabaseModel model) {
+          return ::can_decoder_run(parsed_mmap_token.c_str(), std::move(model));
+     }, py::arg("parsed_mmap_token"), py::arg("model"));
 
-    py::class_<file_service::ParsedMmapInterface>(m, "ParsedMmapInterface")
-        .def(py::init<std::string>(), py::arg("token_id"))
-        .def("open_mmap", &file_service::ParsedMmapInterface::open_mmap)
-        .def("write_entries", &file_service::ParsedMmapInterface::write_entries,
+    py::class_<file_service::LogQuery>(m, "LogQuery")
+        .def(py::init<>())
+        .def_readwrite("can_ids", &file_service::LogQuery::can_ids)
+        .def_readwrite("channels", &file_service::LogQuery::channels)
+        .def_readwrite("directions", &file_service::LogQuery::directions)
+        .def_readwrite("changed_only", &file_service::LogQuery::changed_only)
+        .def_readwrite("has_time_range", &file_service::LogQuery::has_time_range)
+        .def_readwrite("first_ts", &file_service::LogQuery::first_ts)
+        .def_readwrite("last_ts", &file_service::LogQuery::last_ts);
+
+     py::class_<file_service::MetaDataStorageInterface>(m, "MetaDataStorageInterface")
+          .def(py::init<std::string>(), py::arg("mmap_prefix"))
+        .def("open_storage", &file_service::MetaDataStorageInterface::open_storage)
+        .def("open_mmap", [](file_service::MetaDataStorageInterface& self) {
+             self.open_storage();
+             return 0;
+         })
+        .def("write_entries", &file_service::MetaDataStorageInterface::write_entries,
              py::arg("parsed_entries"))
-        .def("close_mmap", &file_service::ParsedMmapInterface::close_mmap)
-        .def("read_page", &file_service::ParsedMmapInterface::read_page,
+        .def("update_entries", &file_service::MetaDataStorageInterface::update_entries,
+             py::arg("entry_updates"))
+        .def("close_storage", &file_service::MetaDataStorageInterface::close_storage)
+        .def("close_mmap", [](file_service::MetaDataStorageInterface& self) {
+             self.close_storage();
+         })
+        .def("read_page", &file_service::MetaDataStorageInterface::read_page,
              py::arg("first"), py::arg("last"))
-        .def("read_page_from_can_id", &file_service::ParsedMmapInterface::read_page_from_can_id,
-             py::arg("can_id"), py::arg("first"), py::arg("last"))
-        .def("read_page_from_can_ids", &file_service::ParsedMmapInterface::read_page_from_can_ids,
-             py::arg("can_ids"), py::arg("first"), py::arg("last"))
-        .def("read_page_from_can_id_changed", &file_service::ParsedMmapInterface::read_page_from_can_id_changed,
-             py::arg("can_id"), py::arg("first"), py::arg("last"))
-        .def("read_page_from_can_ids_changed", &file_service::ParsedMmapInterface::read_page_from_can_ids_changed,
-             py::arg("can_ids"), py::arg("first"), py::arg("last"))
-        .def("read_page_from_channel", &file_service::ParsedMmapInterface::read_page_from_channel,
-             py::arg("channel"), py::arg("first"), py::arg("last"))
-        .def("read_page_from_channels", &file_service::ParsedMmapInterface::read_page_from_channels,
-             py::arg("channels"), py::arg("first"), py::arg("last"))
-        .def("read_page_from_direction", &file_service::ParsedMmapInterface::read_page_from_direction,
-             py::arg("direction"), py::arg("first"), py::arg("last"))
-        .def("read_page_from_directions", &file_service::ParsedMmapInterface::read_page_from_directions,
-             py::arg("directions"), py::arg("first"), py::arg("last"))
-        .def("read_all_entries", &file_service::ParsedMmapInterface::read_all_entries)
-        .def("get_first_last_timestamp", [](const file_service::ParsedMmapInterface& self) -> py::tuple {
+        .def("read_page_multi", &file_service::MetaDataStorageInterface::read_page_multi,
+             py::arg("query"), py::arg("first"), py::arg("last"))
+        .def("read_all_entries", &file_service::MetaDataStorageInterface::read_all_entries)
+        .def("get_first_last_timestamp", [](const file_service::MetaDataStorageInterface& self) -> py::tuple {
              double first_ts = 0.0;
              double last_ts = 0.0;
-             const int32_t rc = self.get_first_last_timestamp(first_ts, last_ts);
-             if (rc != 0) {
-                  return py::make_tuple(py::none(), py::none());
-             }
+             self.get_first_last_timestamp(first_ts, last_ts);
              return py::make_tuple(py::float_(first_ts), py::float_(last_ts));
          })
-        .def("fetch_count", &file_service::ParsedMmapInterface::fetch_count)
-     .def("last_error_code", &file_service::ParsedMmapInterface::last_error_code);
+        .def("get_file_path", &file_service::MetaDataStorageInterface::get_file_path)
+        .def("fetch_count", &file_service::MetaDataStorageInterface::fetch_count)
+     .def("last_error_code", &file_service::MetaDataStorageInterface::last_error_code);
 }

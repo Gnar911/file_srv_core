@@ -1,15 +1,19 @@
 from .fs_core import (
+    CanDatabaseModel,
     CanDecoder,
     DecodedSignal,
+    EntryUpdate,
+    LogQuery,
+    LogRecord,
     MessageDef,
+    MetaDataStorageInterface,
     ParsedEntry,
-    ParsedMmapInterface,
     SignalDef,
     abi_version,
     can_decoder_run,
 )
 
-EXPECTED_CORE_ABI_VERSION = 7
+EXPECTED_CORE_ABI_VERSION = 8
 
 _loaded_abi = int(abi_version())
 if _loaded_abi != EXPECTED_CORE_ABI_VERSION:
@@ -18,11 +22,15 @@ if _loaded_abi != EXPECTED_CORE_ABI_VERSION:
     )
 
 __all__ = [
+    "CanDatabaseModel",
     "CanDecoder",
     "DecodedSignal",
+    "EntryUpdate",
+    "LogQuery",
+    "LogRecord",
     "MessageDef",
+    "MetaDataStorageInterface",
     "ParsedEntry",
-    "ParsedMmapInterface",
     "SignalDef",
     "abi_version",
     "can_decoder_run",
