@@ -7,36 +7,13 @@
 
 #include "can_analyzer_log.h"
 
-// Use centralized SQLite ABI declarations.
-#include "sqlite/sqlite_wrapper.h"
+#include "sqlite/sqlite_wrapper_RAII.h"
 #include <stdexcept>
 #include <exception>
 
 namespace {
 
-constexpr int SQLITE_OK = 0;
 constexpr int SQLITE_ROW = 100;
-constexpr int SQLITE_DONE = 101;
-
-// constexpr int32_t kLogIndexRcOpenFailed        = -401;
-// constexpr int32_t kLogIndexRcSchemaDbClosed     = -402;
-// constexpr int32_t kLogIndexRcSchemaExecFailed   = -403;
-// constexpr int32_t kLogIndexRcBeginDbClosed      = -404;
-// constexpr int32_t kLogIndexRcBeginExecFailed    = -405;
-// constexpr int32_t kLogIndexRcCommitDbClosed     = -406;
-// constexpr int32_t kLogIndexRcCommitExecFailed   = -407;
-// constexpr int32_t kLogIndexRcWriteDbClosed      = -408;
-// constexpr int32_t kLogIndexRcWritePrepareFailed = -409;
-// constexpr int32_t kLogIndexRcWriteStepFailed    = -410;
-// constexpr int32_t kLogIndexRcUpdatePrepareFailed = -411;
-// constexpr int32_t kLogIndexRcUpdateStepFailed    = -412;
-// constexpr int32_t kLogIndexRcRollbackExecFailed  = -413;
-// constexpr int32_t kLogIndexRcInvalidLineNumber   = -414;
-
-std::string format_sqlite_error(sqlite3* db, const char* op, int rc) {
-    return std::string(op) + " rc=" + std::to_string(rc) + " sqlite_msg=" +
-        (db != nullptr ? sqlitew::errmsg(db) : "<null-db>");
-}
 
 std::pair<int32_t, int32_t> to_page_window(int32_t first, int32_t last) {
     if (last < first) {
@@ -74,91 +51,14 @@ static std::string normalize_channel_key(const std::string& channel) {
 
 
 LogIndexDatabase::LogIndexDatabase(std::string db_path)
-    : db_path_(std::move(db_path)) {}
+        : db_path_(std::move(db_path)),
+            db_(db_path_) {
 
-LogIndexDatabase::~LogIndexDatabase() {
-    //close();
-}
+        static const char* kInsertSql =
+                "INSERT OR REPLACE INTO log_index "
+                "(row_index, timestamp, can_id, direction, channel, changed) "
+                "VALUES (?, ?, ?, ?, ?, ?);";
 
-std::string LogIndexDatabase::db_path() const {
-    return db_path_;
-}
-
-// const std::string& LogIndexDatabase::last_error_message() const {
-//     return last_error_message_;
-// }
-
-void LogIndexDatabase::open_append_session() {
-    if (db_ != nullptr && stmt_ != nullptr) {
-        return;
-    }
-
-    static const char* kInsertSql =
-        "INSERT OR REPLACE INTO log_index "
-        "(row_index, timestamp, can_id, direction, channel, changed) "
-        "VALUES (?, ?, ?, ?, ?, ?);";
-
-    sqlitew::open(db_path_.c_str(), &db_);
-
-    /// 20260709 BUG: By default, SQLite uses DELETE journal mode. -> can not do 1 writer, multiple readers
-    sqlitew::exec(db_, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
-    sqlitew::exec(db_, "PRAGMA synchronous=NORMAL;", nullptr, nullptr, nullptr);
-    sqlitew::exec(db_, "PRAGMA temp_store=MEMORY;", nullptr, nullptr, nullptr);
-
-    // Ensure the schema is present before preparing statements that depend on it.
-    initialize_schema();
-
-    if (stmt_ == nullptr) {
-        sqlitew::prepare_v2(db_, kInsertSql, -1, &stmt_, nullptr);
-    }
-
-    //last_error_message_.clear();
-}
-
-void LogIndexDatabase::close_append_session() {
-    if (stmt_ != nullptr) {
-        sqlitew::finalize(stmt_);
-        stmt_ = nullptr;
-    }
-    last_raw_by_id_.clear();
-    if (db_ != nullptr) {
-        sqlitew::close(db_);
-        db_ = nullptr;
-    }
-}
-
-// bool LogIndexDatabase::compute_changed_and_update(uint32_t can_id,
-//                                                   const uint8_t* data,
-//                                                   uint8_t data_len) {
-//     const uint8_t bounded_len = (data_len <= static_cast<uint8_t>(sizeof(PrevRaw::data)))
-//         ? data_len
-//         : static_cast<uint8_t>(sizeof(PrevRaw::data));
-
-//     auto it = last_raw_by_id_.find(can_id);
-//     if (it == last_raw_by_id_.end()) {
-//         PrevRaw prev{};
-//         prev.len = bounded_len;
-//         if (bounded_len > 0) {
-//             std::memcpy(prev.data, data, bounded_len);
-//         }
-//         last_raw_by_id_.emplace(can_id, prev);
-//         return false;
-//     }
-
-//     const PrevRaw& prev = it->second;
-//     const bool changed = (prev.len != bounded_len)
-//         || (bounded_len > 0 && std::memcmp(prev.data, data, bounded_len) != 0);
-
-//     it->second.len = bounded_len;
-//     if (bounded_len > 0) {
-//         std::memcpy(it->second.data, data, bounded_len);
-//     }
-//     return changed;
-// }
-
-int32_t LogIndexDatabase::initialize_schema() {
-    // row_index is the rowid (payload row in the mmap data store).
-    // Filtering columns are indexed; changed uses a small partial index.
     static const char* kSchemaSql =
         "CREATE TABLE IF NOT EXISTS log_index ("
         "  row_index INTEGER PRIMARY KEY,"
@@ -173,20 +73,24 @@ int32_t LogIndexDatabase::initialize_schema() {
         "CREATE INDEX IF NOT EXISTS idx_log_dir     ON log_index(direction);"
         "CREATE INDEX IF NOT EXISTS idx_log_changed ON log_index(changed) WHERE changed = 1;";
 
-    sqlitew::exec(db_, kSchemaSql, nullptr, nullptr, nullptr);
-    //last_error_message_.clear();
-    return 0;
+    sqlitew::exec(db_.get(), kSchemaSql, nullptr, nullptr, nullptr);
+    stmt_.prepare(db_, kInsertSql);
+}
+
+LogIndexDatabase::~LogIndexDatabase() {
+}
+
+std::string LogIndexDatabase::db_path() const {
+    return db_path_;
 }
 
 int32_t LogIndexDatabase::begin_transaction() {
-    sqlitew::exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
-    //last_error_message_.clear();
+    sqlitew::exec(db_.get(), "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
     return 0;
 }
 
 int32_t LogIndexDatabase::commit_transaction() {
-    sqlitew::exec(db_, "COMMIT;", nullptr, nullptr, nullptr);
-    // last_error_message_.clear();
+    sqlitew::exec(db_.get(), "COMMIT;", nullptr, nullptr, nullptr);
     return 0;
 }
 
@@ -198,26 +102,18 @@ void LogIndexDatabase::append_index(
                                     uint32_t row_index,
                                     const ParsedEntry& entry)
 {
-    if (db_ == nullptr) {
-        throw std::runtime_error("LogIndexDatabase used before open() or after close()");
-    }
-    if (!stmt_) {
-        throw std::runtime_error("LogIndexDatabase statement is not initialized");
-    }
-
     const std::string channel = normalize_channel_key(entry.channel);
 
-    sqlitew::bind_int64(stmt_, 1, row_index);
-    sqlitew::bind_double(stmt_, 2, entry.timestamp);
-    sqlitew::bind_int64(stmt_, 3, entry.can_id);
-    sqlitew::bind_int64(stmt_, 4, entry.direction);
-    sqlitew::bind_text(stmt_, 5, channel.c_str(), -1, nullptr);
-    sqlitew::bind_int64(stmt_, 6, static_cast<sqlite3_int64>(entry.changed ? 1 : 0));
+    stmt_.bind_int64(1, row_index);
+    stmt_.bind_double(2, entry.timestamp);
+    stmt_.bind_int64(3, entry.can_id);
+    stmt_.bind_int64(4, entry.direction);
+    stmt_.bind_text(5, channel.c_str(), -1, nullptr);
+    stmt_.bind_int64(6, static_cast<sqlite3_int64>(entry.changed ? 1 : 0));
 
-    sqlitew::step(stmt_);
+    stmt_.step();
 
-    sqlitew::reset(stmt_);
-    sqlitew::clear_bindings(stmt_);
+    stmt_.reset_and_clear();
 }
 
 // bool LogIndexDatabase::update_index(uint32_t row_index, const ParsedEntry& entry) {
@@ -430,14 +326,6 @@ void LogIndexDatabase::append_index(
 bool LogIndexDatabase::update_index(uint32_t row_index,
                                     const ParsedEntry& entry)
 {
-    bool opened_here = false;
-
-    if (db_ == nullptr)
-    {
-        sqlitew::open(db_path_.c_str(), &db_);
-        opened_here = true;
-    }
-
     static const char* kUpdateSql =
         "UPDATE log_index "
         "SET timestamp = ?, "
@@ -447,48 +335,18 @@ bool LogIndexDatabase::update_index(uint32_t row_index,
         "    changed = ? "
         "WHERE row_index = ?;";
 
-    sqlite3_stmt* stmt = nullptr;
+    Statement update_stmt(db_, kUpdateSql);
+    const std::string channel = normalize_channel_key(entry.channel);
 
-    try
-    {
-        sqlitew::prepare_v2(db_, kUpdateSql, -1, &stmt, nullptr);
+    update_stmt.bind_double(1, entry.timestamp);
+    update_stmt.bind_int64(2, static_cast<sqlite3_int64>(entry.can_id));
+    update_stmt.bind_int64(3, static_cast<sqlite3_int64>(entry.direction));
+    update_stmt.bind_text(4, channel.c_str(), -1, nullptr);
+    update_stmt.bind_int64(5, static_cast<sqlite3_int64>(entry.changed));
+    update_stmt.bind_int64(6, static_cast<sqlite3_int64>(row_index));
 
-        const std::string channel = normalize_channel_key(entry.channel);
-
-        sqlitew::bind_double(stmt, 1, entry.timestamp);
-        sqlitew::bind_int64(stmt, 2, static_cast<sqlite3_int64>(entry.can_id));
-        sqlitew::bind_int64(stmt, 3, static_cast<sqlite3_int64>(entry.direction));
-        sqlitew::bind_text(stmt, 4, channel.c_str(), -1, nullptr);
-        sqlitew::bind_int64(stmt, 5, static_cast<sqlite3_int64>(entry.changed));
-        sqlitew::bind_int64(stmt, 6, static_cast<sqlite3_int64>(row_index));
-
-        sqlitew::step(stmt);
-
-        sqlitew::finalize(stmt);
-
-        if (opened_here)
-        {
-            sqlitew::close(db_);
-            db_ = nullptr;
-        }
-
-        return true;
-    }
-    catch (...)
-    {
-        if (stmt)
-        {
-            sqlitew::finalize(stmt);
-        }
-
-        if (opened_here && db_)
-        {
-            sqlitew::close(db_);
-            db_ = nullptr;
-        }
-
-        throw;
-    }
+    update_stmt.step();
+    return true;
 }
 
 
@@ -499,16 +357,6 @@ std::vector<uint32_t> LogIndexDatabase::query_row_indices(const LogQuery& query,
     const auto [first_line, page_size] = to_page_window(first, last);
     if (page_size <= 0) {
         return {};
-    }
-
-    bool opened_here = false;
-    if (db_ == nullptr) {
-        /// NOTE: By default, SQLite uses DELETE journal mode. -> can not do 1 writer, multiple readers
-        sqlitew::open(db_path_.c_str(), &db_);
-        sqlitew::exec(db_, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
-        sqlitew::exec(db_, "PRAGMA synchronous=NORMAL;", nullptr, nullptr, nullptr);
-        sqlitew::exec(db_, "PRAGMA temp_store=MEMORY;", nullptr, nullptr, nullptr);
-        opened_here = true;
     }
 
     // Build the WHERE clause from fixed column names + the *count* of "?"
@@ -539,44 +387,33 @@ std::vector<uint32_t> LogIndexDatabase::query_row_indices(const LogQuery& query,
     }
     sql += " ORDER BY row_index LIMIT ? OFFSET ?;";
 
-    sqlite3_stmt* stmt = nullptr;
-    try {
-        sqlitew::prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    Statement query_stmt(db_, sql.c_str());
 
-        int bind_idx = 1;
-        for (const uint32_t can_id : query.can_ids) {
-            sqlitew::bind_int64(stmt, bind_idx++, static_cast<sqlite3_int64>(can_id));
-        }
-        for (const uint8_t direction : query.directions) {
-            sqlitew::bind_int64(stmt, bind_idx++, static_cast<sqlite3_int64>(direction));
-        }
-        for (const std::string& channel : query.channels) {
-            sqlitew::bind_text(stmt, bind_idx++, channel.c_str(), -1, nullptr);
-        }
-        if (query.has_time_range) {
-            sqlitew::bind_double(stmt, bind_idx++, query.first_ts);
-            sqlitew::bind_double(stmt, bind_idx++, query.last_ts);
-        }
-        sqlitew::bind_int64(stmt, bind_idx++, static_cast<sqlite3_int64>(page_size));   // LIMIT
-        sqlitew::bind_int64(stmt, bind_idx++, static_cast<sqlite3_int64>(first_line));  // OFFSET
-
-        std::vector<uint32_t> rows;
-        rows.reserve(static_cast<size_t>(page_size));
-        while (sqlitew::step(stmt) == SQLITE_ROW) {
-            rows.push_back(static_cast<uint32_t>(sqlitew::column_int64(stmt, 0)));
-        }
-
-        if (stmt != nullptr) { sqlitew::finalize(stmt); stmt = nullptr; }
-        if (opened_here && db_ != nullptr) { sqlitew::close(db_); db_ = nullptr; }
-        //last_error_message_.clear();
-        return rows;
-    } catch (...) {
-        std::exception_ptr proc_ex = std::current_exception();
-            if (stmt != nullptr) { sqlitew::finalize(stmt); stmt = nullptr; }
-            if (opened_here && db_ != nullptr) { sqlitew::close(db_); db_ = nullptr; }
-        std::rethrow_exception(proc_ex);
+    int bind_idx = 1;
+    for (const uint32_t can_id : query.can_ids) {
+        query_stmt.bind_int64(bind_idx++, static_cast<sqlite3_int64>(can_id));
     }
+    for (const uint8_t direction : query.directions) {
+        query_stmt.bind_int64(bind_idx++, static_cast<sqlite3_int64>(direction));
     }
+    for (const std::string& channel : query.channels) {
+        query_stmt.bind_text(bind_idx++, channel.c_str(), -1, nullptr);
+    }
+    if (query.has_time_range) {
+        query_stmt.bind_double(bind_idx++, query.first_ts);
+        query_stmt.bind_double(bind_idx++, query.last_ts);
+    }
+    query_stmt.bind_int64(bind_idx++, static_cast<sqlite3_int64>(page_size));   // LIMIT
+    query_stmt.bind_int64(bind_idx++, static_cast<sqlite3_int64>(first_line));  // OFFSET
+
+    std::vector<uint32_t> rows;
+    rows.reserve(static_cast<size_t>(page_size));
+    while (query_stmt.step() == SQLITE_ROW) {
+        rows.push_back(static_cast<uint32_t>(query_stmt.column_int64(0)));
+    }
+
+    return rows;
+}
 
 
 bool LogIndexDatabase::get_first_last_timestamp(double& out_first_ts,
@@ -584,61 +421,26 @@ bool LogIndexDatabase::get_first_last_timestamp(double& out_first_ts,
     out_first_ts = 0.0;
     out_last_ts = 0.0;
 
-    sqlite3* ldb = nullptr;
-    sqlite3_stmt* stmt = nullptr;
     static const char* kSql = "SELECT COUNT(1), MIN(timestamp), MAX(timestamp) FROM log_index;";
-    try {
-        /// NOTE: By default, SQLite uses DELETE journal mode. -> can not do 1 writer, multiple readers
-        sqlitew::open(db_path_.c_str(), &ldb);
-        sqlitew::exec(ldb, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
-        sqlitew::exec(ldb, "PRAGMA synchronous=NORMAL;", nullptr, nullptr, nullptr);
-        sqlitew::exec(ldb, "PRAGMA temp_store=MEMORY;", nullptr, nullptr, nullptr);
-        sqlitew::prepare_v2(ldb, kSql, -1, &stmt, nullptr);
 
-        const int step_rc = sqlitew::step(stmt);
+    Statement stmt(db_, kSql);
+    stmt.step();
 
-        const sqlite3_int64 count = sqlitew::column_int64(stmt, 0);
-        if (count == 0) {
-            sqlitew::finalize(stmt);
-            sqlitew::close(ldb);
-            return false;
-        }
-
-        out_first_ts = sqlitew::column_double(stmt, 1);
-        out_last_ts = sqlitew::column_double(stmt, 2);
-
-        sqlitew::finalize(stmt);
-        stmt = nullptr;
-        sqlitew::close(ldb);
-        ldb = nullptr;
-        return true;
-    } catch (...) {
-        if (stmt != nullptr) { sqlitew::finalize(stmt); stmt = nullptr; }
-        if (ldb != nullptr) { sqlitew::close(ldb); ldb = nullptr; }
-        throw;
+    const sqlite3_int64 count = stmt.column_int64(0);
+    if (count == 0) {
+        return false;
     }
+
+    out_first_ts = stmt.column_double(1);
+    out_last_ts = stmt.column_double(2);
+    return true;
 }
 
 uint32_t LogIndexDatabase::row_count() const {
-    sqlite3* ldb = nullptr;
-    sqlite3_stmt* stmt = nullptr;
     static const char* kSql = "SELECT COUNT(1) FROM log_index;";
-    try {
-        sqlitew::open(db_path_.c_str(), &ldb);
-        sqlitew::prepare_v2(ldb, kSql, -1, &stmt, nullptr);
+    Statement stmt(db_, kSql);
+    stmt.step();
+    const sqlite3_int64 count = stmt.column_int64(0);
 
-        const int step_rc = sqlitew::step(stmt);
-
-        const sqlite3_int64 count = sqlitew::column_int64(stmt, 0);
-
-        sqlitew::finalize(stmt);
-        stmt = nullptr;
-        sqlitew::close(ldb);
-        ldb = nullptr;
-        return static_cast<uint32_t>(count);
-    } catch (...) {
-        if (stmt != nullptr) { sqlitew::finalize(stmt); stmt = nullptr; }
-        if (ldb != nullptr) { sqlitew::close(ldb); ldb = nullptr; }
-        throw;
-    }
+    return static_cast<uint32_t>(count);
 }

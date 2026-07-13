@@ -66,15 +66,7 @@ void MetaDataStorageInterface::set_file_path(const std::string& path)
 // }
 
 
-void MetaDataStorageInterface::open_storage() {
-    CBCM_TRACE("MetaDataStorageInterface::open_mmap enter token=%s", token_id.c_str());
-    //clear_last_error();
-
-    //data_.open_and_init(); // throws on error
-    // SQLite multi-factor filter index (payload stays in mmap; see header note).
-    index_db_.open_append_session();
-    //index_db_.initialize_schema();
-}
+// open_storage/close_storage removed: RAII in MetaDataStorageInterface + LogIndexDatabase handles lifecycle
 
 static bool payload_changed(const LogRecord& prev,
                             const LogRecord& cur)
@@ -230,15 +222,15 @@ void MetaDataStorageInterface::update_entry(
     }
 }
 
-void MetaDataStorageInterface::close_storage() {
-    CBCM_TRACE("MetaDataStorageInterface::close_mmap enter token=%s", token_id.c_str());
-    // data_.close_and_finalize();
-    index_db_.close_append_session();
-}
+// close_storage removed: RAII-managed cleanup occurs in destructors
 
 uint32_t MetaDataStorageInterface::fetch_count() const {
     //clear_last_error();
     return index_db_.row_count();
+}
+
+std::string MetaDataStorageInterface::token_path() const {
+    return storage_token_.sqlite_path().string();
 }
 
 bool MetaDataStorageInterface::get_first_last_timestamp(double& out_first_ts,
@@ -247,26 +239,26 @@ bool MetaDataStorageInterface::get_first_last_timestamp(double& out_first_ts,
     return index_db_.get_first_last_timestamp(out_first_ts, out_last_ts);
 }
 
-const std::string& MetaDataStorageInterface::token_path() const {
-    return token_id;
-}
+// const std::string& MetaDataStorageInterface::token_path() const {
+//     return token_id;
+// }
 
-MetaDataStorageInterface::Metadata MetaDataStorageInterface::get_metadata() const {
-    Metadata m;
-    m.total_rows = fetch_count();
-    double first = 0, last = 0;
-    if (get_first_last_timestamp(first, last)) {
-        m.first_timestamp = first;
-        m.last_timestamp = last;
-    }
-    // prefer the header-stored source file path from the read mmap
-    try {
-        m.source_file_path = rdata_.source_file_path();
-    } catch (...) {
-        m.source_file_path.clear();
-    }
-    return m;
-}
+// MetaDataStorageInterface::Metadata MetaDataStorageInterface::get_metadata() const {
+//     Metadata m;
+//     m.total_rows = fetch_count();
+//     double first = 0, last = 0;
+//     if (get_first_last_timestamp(first, last)) {
+//         m.first_timestamp = first;
+//         m.last_timestamp = last;
+//     }
+//     // prefer the header-stored source file path from the read mmap
+//     try {
+//         m.source_file_path = rdata_.source_file_path();
+//     } catch (...) {
+//         m.source_file_path.clear();
+//     }
+//     return m;
+// }
 
 std::vector<ParsedEntry> MetaDataStorageInterface::read_page(int32_t offset, int32_t count) const {
     return rdata_.read_page(offset, count);

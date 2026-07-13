@@ -19,9 +19,6 @@ TEST(LogIndexDatabaseTest, OpenInitializeAppend) {
     std::filesystem::remove(db_path, ec);
 
     LogIndexDatabase db(db_path);
-    // open + initialize schema
-    db.open_append_session();
-    ASSERT_EQ(db.initialize_schema(), 0);
 
     db.begin_transaction();
 
@@ -37,7 +34,6 @@ TEST(LogIndexDatabaseTest, OpenInitializeAppend) {
 
     db.append_index(0u, rec);
     db.commit_transaction();
-    db.close_append_session();
 
     // verify row exists by opening DB directly and counting rows
     sqlite3* raw_db = nullptr;
@@ -62,8 +58,6 @@ TEST(LogIndexDatabaseTest, QueryRowIndicesAndStats) {
     std::filesystem::remove(db_path, ec);
 
     LogIndexDatabase db(db_path);
-    db.open_append_session();
-    ASSERT_EQ(db.initialize_schema(), 0);
     db.begin_transaction();
 
     // Insert several entries with different attributes
@@ -80,7 +74,6 @@ TEST(LogIndexDatabaseTest, QueryRowIndicesAndStats) {
     db.append_index(4u, e4);
 
     db.commit_transaction();
-    db.close_append_session();
 
     // row_count and first/last timestamps
     EXPECT_EQ(db.row_count(), 5u);
@@ -126,8 +119,6 @@ TEST(LogIndexDatabaseTest, ConcurrentAppendRowCount) {
     std::filesystem::remove(db_path, ec);
 
     LogIndexDatabase db(db_path);
-    db.open_append_session();
-    ASSERT_EQ(db.initialize_schema(), 0);
 
     const int kNumRows = 100;
     std::atomic<bool> writer_done{false};
@@ -189,5 +180,4 @@ TEST(LogIndexDatabaseTest, ConcurrentAppendRowCount) {
     }
 
     EXPECT_EQ(db.row_count(), static_cast<uint32_t>(kNumRows));
-    db.close_append_session();
 }

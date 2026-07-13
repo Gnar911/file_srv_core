@@ -42,12 +42,6 @@ public:
     MMapHandle(MMapHandle&& other) noexcept;
     MMapHandle& operator=(MMapHandle&& other) noexcept;
 
-    // void open_ro(const std::filesystem::path& path);
-    // void open_rw(const std::filesystem::path& path);
-    // void create_rw(const std::filesystem::path& path, size_t size);
-
-    // void close();
-
     [[nodiscard]] void* data() const noexcept { return addr; }
     [[nodiscard]] size_t bytes() const noexcept { return size; }
     [[nodiscard]] bool is_open() const noexcept { return addr != nullptr; }

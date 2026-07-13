@@ -10,7 +10,6 @@
 #include "storage_token.h"
 #include "meta_data_tracker.h"
 
-
 // ─────────────────────────────────────────────────────────────────────────────
 // MetaDataStorageInterface — storage-technique-agnostic facade for parsed CAN
 // logs. It hides HOW a parsed log is stored/queried behind one interface, and
@@ -53,21 +52,19 @@ class MetaDataStorageInterface {
 public:
 	explicit MetaDataStorageInterface(std::string token_id);
 
-	struct Metadata {
-		double first_timestamp = 0.0;
-		double last_timestamp = 0.0;
-		uint32_t total_rows = 0;
-		std::string source_file_path; // stored by set_source_file_path when parsing
-	};
+	// struct Metadata {
+	// 	double first_timestamp = 0.0; // no fetch
+	// 	double last_timestamp = 0.0; // no fetch
+	// 	uint32_t total_rows = 0; 
+	// 	std::string source_file_path; // no fetch
+	// };
 
-	Metadata get_metadata() const;
+	//Metadata get_metadata() const;
 
-	void open_storage();
 	void set_file_path(const std::string& path);
 	void write_entries(const std::vector<LogRecord>& entries);
 	void update_entry(uint32_t row_index,
                       const LogRecord& entry);
-	void close_storage();
 
 	std::vector<ParsedEntry> read_page(int32_t first, int32_t last) const;
 	std::vector<ParsedEntry> read_page_multi(const LogQuery& query,
@@ -77,7 +74,8 @@ public:
 							 double& out_last_ts) const;		
 
 	uint32_t fetch_count() const;
-	const std::string& token_path() const;
+	std::string token_path() const;
+	//const std::string& token_path() const;
 	//int32_t last_error_code() const;
 
 private:

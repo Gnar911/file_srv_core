@@ -53,7 +53,8 @@
 
 #include "parsed_entry_layout.h"
 #include <functional>
-#include "sqlite/sqlite_wrapper.h"
+#include <memory>
+#include "sqlite/sqlite_wrapper_RAII.h"
 
 struct sqlite3;
 
@@ -90,11 +91,8 @@ public:
     LogIndexDatabase(const LogIndexDatabase&) = delete;
     LogIndexDatabase& operator=(const LogIndexDatabase&) = delete;
 
-    void open_append_session();
-    void    close_append_session(); 
     std::string db_path() const;
 
-    int32_t initialize_schema();
     int32_t begin_transaction();
     int32_t commit_transaction();
 
@@ -130,16 +128,16 @@ private:
         uint8_t data[64] = {0};
     };
 
-    bool compute_changed_and_update(uint32_t can_id,
-                                    const uint8_t* data,
-                                    uint8_t data_len);
+    // bool compute_changed_and_update(uint32_t can_id,
+    //                                 const uint8_t* data,
+    //                                 uint8_t data_len);
     // Keep a small cache of previous raw payload by can_id for change detection
     // (legacy code path). This map may be unused if change detection is moved
     // out of LogIndexDatabase.
     std::unordered_map<uint32_t, PrevRaw> last_raw_by_id_;
-    sqlite3_stmt* stmt_ = nullptr;
-    sqlite3* db_ = nullptr;
     std::string db_path_;
+    Connection db_;
+    Statement stmt_;
     std::string last_error_message_;
 };
 

@@ -365,9 +365,7 @@ CP_EXPORT int32_t run_worker_segmented(const char* file_path,
     {
         MetaDataStorageInterface handler{std::string(token_id)};
         handler.set_file_path(file_path);
-        handler.open_storage();
         handler.write_entries(parsed_entries);
-        handler.close_storage();
     }
     catch (const std::exception&) {
 			return -1;

@@ -97,12 +97,11 @@ TEST(RunWorkerSegmented, WritesArtifacts) {
     // 1) Row count stored must equal the number of input mock records.
     ASSERT_EQ(mdi.fetch_count(), static_cast<uint32_t>(expected.size()));
 
-    // 2) Metadata must reflect the written rows exactly.
-    const auto md = mdi.get_metadata();
-    EXPECT_EQ(md.total_rows, static_cast<uint32_t>(expected.size()));
-    EXPECT_DOUBLE_EQ(md.first_timestamp, expected_first_ts);
-    EXPECT_DOUBLE_EQ(md.last_timestamp, expected_last_ts);
-    EXPECT_EQ(md.source_file_path, file_path);
+    // 2) First/last timestamps should match expected values (use new API).
+    double actual_first_ts = 0.0, actual_last_ts = 0.0;
+    ASSERT_TRUE(mdi.get_first_last_timestamp(actual_first_ts, actual_last_ts));
+    EXPECT_DOUBLE_EQ(actual_first_ts, expected_first_ts);
+    EXPECT_DOUBLE_EQ(actual_last_ts, expected_last_ts);
 
     // 3) Every stored row must match the corresponding input record field-by-field.
     const std::vector<ParsedEntry> stored =
@@ -183,8 +182,7 @@ TEST(RunWorkerSegmented, ConcurrentGetMetadata) {
         // Poll until worker completes or timeout
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
         while (!worker_done.load() && std::chrono::steady_clock::now() < deadline) {
-            auto md = mdi.get_metadata();
-            if (md.total_rows > 0) saw_progress.store(true);
+            if (mdi.fetch_count() > 0) saw_progress.store(true);
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
     });
@@ -199,9 +197,6 @@ TEST(RunWorkerSegmented, ConcurrentGetMetadata) {
 
     MetaDataStorageInterface mdi(token_id);
     ASSERT_EQ(mdi.fetch_count(), static_cast<uint32_t>(expected.size()));
-
-    const auto md = mdi.get_metadata();
-    EXPECT_EQ(md.total_rows, static_cast<uint32_t>(expected.size()));
 
     const std::vector<ParsedEntry> stored = mdi.read_page(0, static_cast<int32_t>(expected.size()));
     ASSERT_EQ(stored.size(), expected.size());

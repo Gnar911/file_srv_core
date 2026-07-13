@@ -141,19 +141,10 @@ PYBIND11_MODULE(fs_core, m) {
 
      py::class_<MetaDataStorageInterface>(m, "MetaDataStorageInterface")
           .def(py::init<std::string>(), py::arg("mmap_prefix"))
-        .def("open_storage", &MetaDataStorageInterface::open_storage)
-        .def("open_mmap", [](MetaDataStorageInterface& self) {
-             self.open_storage();
-             return 0;
-         })
         .def("write_entries", &MetaDataStorageInterface::write_entries,
              py::arg("parsed_entries"))
         .def("update_entry", &MetaDataStorageInterface::update_entry,
              py::arg("row_index"), py::arg("entry"))
-        .def("close_storage", &MetaDataStorageInterface::close_storage)
-        .def("close_mmap", [](MetaDataStorageInterface& self) {
-             self.close_storage();
-         })
         .def("read_page", &MetaDataStorageInterface::read_page,
              py::arg("first"), py::arg("last"))
         .def("read_page_multi", &MetaDataStorageInterface::read_page_multi,

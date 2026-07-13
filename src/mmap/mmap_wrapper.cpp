@@ -255,6 +255,7 @@ void mmap_create_rw(const char* path, size_t size, MMapHandle& out) {
     out.size = size;
 }
 
+/// NOTE: user pass the the close handle, function check the null at one place then call system call to avoid failed
 void mmap_close(MMapHandle& h) {
     if (h.addr) { munmap(h.addr, h.size); h.addr = nullptr; }
     if (h.fd >= 0) { ::close(h.fd); h.fd = -1; }
