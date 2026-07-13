@@ -67,13 +67,11 @@ DecodeError process_page(
             dst.raw_value.push_back(sig.raw_value);
             dst.phys_value.push_back(sig.phys_value);
 
-            const std::string state_key = key;
-            const bool has_prev = has_last_raw_by_signal[state_key];
-            if (has_prev && last_raw_by_signal[state_key] != sig.raw_value) {
-                dst.changed_row_index.push_back(static_cast<uint32_t>(global_row));
-            }
-            has_last_raw_by_signal[state_key] = true;
-            last_raw_by_signal[state_key] = sig.raw_value;
+            // const std::string state_key = key;
+            // const bool has_prev = has_last_raw_by_signal[state_key];
+            // // change-tracking removed: we no longer collect changed_row_index
+            // has_last_raw_by_signal[state_key] = true;
+            // last_raw_by_signal[state_key] = sig.raw_value;
         }
     }
 
@@ -86,7 +84,7 @@ DecodeError process_page(
 
     const int32_t rc = db.write_signals(chunks);
     if (rc != 0) {
-        return make_decode_error(rc, db.last_error_message());
+        return make_decode_error(rc, "write_signals failed");
     }
     return make_decode_error(0, "");
 }
@@ -113,19 +111,13 @@ DecodeError can_decoder_run(const MetaDataStorageInterface& parsed_mmap, CanData
     constexpr uint64_t kReadChunkSize = 100'000;
 
     DecodedSignalDatabase signal_db(parsed_mmap.token_path());
-    const int32_t open_rc = signal_db.open();
-    if (open_rc != 0) {
-        return make_decode_error(open_rc, signal_db.last_error_message());
-    }
-    const int32_t schema_rc = signal_db.initialize_schema();
-    if (schema_rc != 0) {
-        signal_db.close();
-        return make_decode_error(schema_rc, signal_db.last_error_message());
-    }
+    // const int32_t schema_rc = signal_db.initialize_schema();
+    // if (schema_rc != 0) {
+    //     return make_decode_error(schema_rc, "failed to initialize decoded signal database schema");
+    // }
     const int32_t begin_rc = signal_db.begin_transaction();
     if (begin_rc != 0) {
-        signal_db.close();
-        return make_decode_error(begin_rc, signal_db.last_error_message());
+        return make_decode_error(begin_rc, "failed to begin decoded signal database transaction");
     }
 
     std::unordered_map<std::string, int64_t> last_raw_by_signal;
@@ -149,7 +141,6 @@ DecodeError can_decoder_run(const MetaDataStorageInterface& parsed_mmap, CanData
         if (page.empty())
         {
             const int32_t page_rc = kDecodeRcReadPageEmpty;
-            signal_db.close();
             return make_decode_error(page_rc, "parsed mmap read_page returned empty page");
         }
 
@@ -162,17 +153,14 @@ DecodeError can_decoder_run(const MetaDataStorageInterface& parsed_mmap, CanData
             has_last_raw_by_signal);
         if (process_rc.rc != 0)
         {
-            signal_db.close();
             return process_rc;
         }
     }
 
     const int32_t commit_rc = signal_db.commit_transaction();
     if (commit_rc != 0) {
-        signal_db.close();
-        return make_decode_error(commit_rc, signal_db.last_error_message());
+        return make_decode_error(commit_rc, "failed to commit decoded signal database transaction");
     }
-    signal_db.close();
 
     return make_decode_error(0, "");
 }

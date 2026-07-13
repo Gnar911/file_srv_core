@@ -44,8 +44,7 @@ CREATE TABLE signal_data
 #include <vector>
 
 #include "can_decoder.h"
-
-struct sqlite3;
+#include "sqlite/sqlite_wrapper_RAII.h"
 
 // Data to write into db
 struct DecodeProgress
@@ -60,7 +59,8 @@ struct DecodedSignalChunk {
     std::vector<uint32_t> row_index;
     std::vector<int64_t> raw_value;
     std::vector<double> phys_value;
-    std::vector<uint32_t> changed_row_index;
+
+    /// NOTE: Add prev and next pointer to detect changed
 };
 
 class DecodedSignalDatabase {
@@ -68,19 +68,11 @@ public:
     explicit DecodedSignalDatabase(
         const std::string& token_path);
 
-    int32_t open();
-
-    void close();
-
     std::string db_path() const;
-
-    int32_t initialize_schema();
 
     int32_t begin_transaction();
 
     int32_t commit_transaction();
-
-    // DecodeMetadata metadata() const;
 
     int32_t write_signals(const std::vector<DecodedSignalChunk>& chunks);
 
@@ -88,10 +80,8 @@ public:
 
     DecodedSignalChunk get_signal_samples(uint32_t can_id, const std::string& signal_name);
 
-    const std::string& last_error_message() const;
-
 private:
-    sqlite3* db_ = nullptr;
     std::string db_path_;
-    std::string last_error_message_;
+    Connection db_{};
+    Statement upsert_stmt_{};
 };

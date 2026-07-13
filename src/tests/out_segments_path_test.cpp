@@ -197,7 +197,6 @@ TEST(CanDecoderApiMock, RunDecodeSmokeWritesSqliteData) {
     EXPECT_GT(std::filesystem::file_size(db_path), 0U);
 
     DecodedSignalDatabase db(token_path.string());
-    ASSERT_EQ(db.open(), 0);
 
     const auto names = db.get_signal_names(0x321);
     ASSERT_EQ(names.size(), 1U);
@@ -207,7 +206,6 @@ TEST(CanDecoderApiMock, RunDecodeSmokeWritesSqliteData) {
     ASSERT_EQ(chunk.row_index.size(), 3U);
     ASSERT_EQ(chunk.raw_value.size(), 3U);
     ASSERT_EQ(chunk.phys_value.size(), 3U);
-    ASSERT_EQ(chunk.changed_row_index.size(), 1U);
 
     EXPECT_EQ(chunk.row_index[0], 0U);
     EXPECT_EQ(chunk.row_index[1], 1U);
@@ -218,9 +216,8 @@ TEST(CanDecoderApiMock, RunDecodeSmokeWritesSqliteData) {
     EXPECT_DOUBLE_EQ(chunk.phys_value[0], 10.0);
     EXPECT_DOUBLE_EQ(chunk.phys_value[1], 10.0);
     EXPECT_DOUBLE_EQ(chunk.phys_value[2], 20.0);
-    EXPECT_EQ(chunk.changed_row_index[0], 2U);
+    // change-tracking removed; no expectation for changed_row_index
 
-    db.close();
     cleanup_prefix_files(dir, token_path.filename().string());
 }
 
@@ -235,8 +232,6 @@ TEST(DecodedSqliteApi, DatabaseFileDiscoveryByTokenPath) {
     EXPECT_GT(std::filesystem::file_size(db_path), 0U);
 
     DecodedSignalDatabase db(token_path.string());
-    ASSERT_EQ(db.open(), 0);
-    db.close();
 }
 
 int main(int argc, char** argv) {
