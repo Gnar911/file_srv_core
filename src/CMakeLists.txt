@@ -5,6 +5,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Export compile commands so editors (clangd/VSCode) can evaluate headers
+if(NOT DEFINED CMAKE_EXPORT_COMPILE_COMMANDS)
+    set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Generate compile_commands.json for editor tools" FORCE)
+endif()
+
 set(PYBIND11_FINDPYTHON ON)
 find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 
@@ -21,6 +26,7 @@ endif()
 
 add_library(file_service_core SHARED
     can_parser.cpp
+    asc_reader.cpp
     metadata_storage.cpp
     mmap/mmap_data.cpp
     can_decoder.cpp
@@ -29,7 +35,7 @@ add_library(file_service_core SHARED
     sqlite/sqlite_wrapper.cpp
     sqlite/log_index_db.cpp
     mmap/mmap_wrapper.cpp
-    mmap/mmap_header_constract.cpp
+    mmap/mmap_layout_view.cpp
 )
 
 target_include_directories(file_service_core PRIVATE
@@ -97,9 +103,10 @@ if(BUILD_TESTING)
         sqlite/sqlite_wrapper.cpp
         sqlite/log_index_db.cpp
         metadata_storage.cpp
+        meta_data_tracker.cpp
         mmap/mmap_data.cpp
         mmap/mmap_wrapper.cpp
-        mmap/mmap_header_constract.cpp
+        mmap/mmap_layout_view.cpp
     )
 
     target_include_directories(file_service_test_lib PUBLIC

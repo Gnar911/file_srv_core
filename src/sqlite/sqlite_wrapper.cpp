@@ -24,6 +24,7 @@ const unsigned char* sqlite3_column_text(sqlite3_stmt*, int iCol);
 const void* sqlite3_column_blob(sqlite3_stmt*, int iCol);
 sqlite3_int64 sqlite3_column_int64(sqlite3_stmt*, int iCol);
 int sqlite3_column_bytes(sqlite3_stmt*, int iCol);
+double sqlite3_column_double(sqlite3_stmt*, int iCol);
 }
 
 namespace {
@@ -130,6 +131,8 @@ const unsigned char* column_text(sqlite3_stmt* stmt, int i) { return sqlite3_col
 const void* column_blob(sqlite3_stmt* stmt, int i) { return sqlite3_column_blob(stmt, i); }
 
 int column_bytes(sqlite3_stmt* stmt, int i) { return sqlite3_column_bytes(stmt, i); }
+
+double column_double(sqlite3_stmt* stmt, int i) { return sqlite3_column_double(stmt, i); }
 
 } // namespace sqlitew
 

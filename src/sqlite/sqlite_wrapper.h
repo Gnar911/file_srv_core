@@ -199,4 +199,6 @@ namespace sqlitew {
 	const void* column_blob(sqlite3_stmt* stmt, int i);
 	int column_bytes(sqlite3_stmt* stmt, int i);
 
+	double column_double(sqlite3_stmt* stmt, int i);
+
 }

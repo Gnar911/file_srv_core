@@ -12,16 +12,14 @@
 #endif
 
 #ifdef __cplusplus
-namespace file_service {
 class MetaDataStorageInterface;
-}
 
 struct DecodeError {
 	int32_t rc = 0;
 	char error_message[512] = {0};
 };
 
-DecodeError can_decoder_run(const file_service::MetaDataStorageInterface& parsed_mmap,
+DecodeError can_decoder_run(const MetaDataStorageInterface& parsed_mmap,
 						CanDatabaseModel model);
 DecodeError can_decoder_run(const char* parsed_mmap_token,
 						CanDatabaseModel model);

@@ -39,6 +39,7 @@
 // CAN signal bit extraction
 // ═══════════════════════════════════════════════════════════════════════════
 
+
 inline int64_t extract_signal_le(const uint8_t* data, int data_len,
                                          int start_bit, int bit_length) {
     uint64_t raw = 0;
@@ -180,3 +181,4 @@ const std::vector<SignalDef>& CanDecoder::signals() const {
 const std::unordered_map<uint32_t, uint32_t>& CanDecoder::canid_to_msg() const {
     return model_.canid_to_msg;
 }
+

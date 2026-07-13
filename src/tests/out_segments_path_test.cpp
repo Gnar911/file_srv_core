@@ -55,7 +55,6 @@ LogRecord make_entry(uint32_t line, uint32_t can_id, uint8_t b0) {
 }
 }  // namespace
 
-namespace file_service {
 
 class MetaDataStorageInterfaceTestAccessor {
 public:
@@ -86,7 +85,6 @@ public:
     }
 };
 
-}  // namespace file_service
 
 TEST(ParsedMmapInterfaceApi, SegmentDiscovery) {
     if (g_token_path.empty()) {
@@ -95,9 +93,9 @@ TEST(ParsedMmapInterfaceApi, SegmentDiscovery) {
 
     const std::filesystem::path token_path = g_token_path;
 
-    file_service::MetaDataStorageInterface iface(token_path.string());
+    MetaDataStorageInterface iface(token_path.string());
 
-    const auto data_paths = file_service::MetaDataStorageInterfaceTestAccessor::data_segment_paths(iface);
+    const auto data_paths = MetaDataStorageInterfaceTestAccessor::data_segment_paths(iface);
     EXPECT_FALSE(data_paths.empty());
 
     std::cout << "[SegmentDiscovery] token=" << token_path.string() << "\n";
@@ -111,8 +109,8 @@ TEST(ParsedMmapInterfaceApi, SegmentDiscovery) {
 
     uint32_t capacity = 0;
     uint64_t write_count = 0;
-    EXPECT_EQ(file_service::MetaDataStorageInterfaceTestAccessor::first_data_segment_capacity(iface, capacity), 0);
-    EXPECT_EQ(file_service::MetaDataStorageInterfaceTestAccessor::first_data_segment_write_count(iface, write_count), 0);
+    EXPECT_EQ(MetaDataStorageInterfaceTestAccessor::first_data_segment_capacity(iface, capacity), 0);
+    EXPECT_EQ(MetaDataStorageInterfaceTestAccessor::first_data_segment_write_count(iface, write_count), 0);
     EXPECT_GT(capacity, 0U);
     EXPECT_GT(write_count, 0U);
     std::cout << "[SegmentDiscovery] first_segment_capacity=" << capacity << "\n";
@@ -161,7 +159,7 @@ TEST(CanDecoderApiMock, RunDecodeSmokeWritesSqliteData) {
     const std::filesystem::path dir = make_test_temp_dir("run_decode_smoke");
     const std::filesystem::path token_path = dir / "token_run_decode";
 
-    file_service::MetaDataStorageInterface parsed(token_path.string());
+    MetaDataStorageInterface parsed(token_path.string());
     parsed.close_storage();
 
     std::vector<LogRecord> entries;

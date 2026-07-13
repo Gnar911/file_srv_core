@@ -93,7 +93,7 @@ DecodeError process_page(
 
 } // namespace
 
-DecodeError can_decoder_run(const file_service::MetaDataStorageInterface& parsed_mmap, CanDatabaseModel model) {
+DecodeError can_decoder_run(const MetaDataStorageInterface& parsed_mmap, CanDatabaseModel model) {
     LOGGING_TRACE_ENABLED;
 
     CanDecoder& decoder = decoder_singleton();
@@ -106,7 +106,7 @@ DecodeError can_decoder_run(const file_service::MetaDataStorageInterface& parsed
 
     const uint64_t entry_count = parsed_mmap.fetch_count();
     if (entry_count == 0) {
-        CBCM_ERROR("No parsed mmap data found (last_error=%d)", parsed_mmap.last_error_code());
+        CBCM_ERROR("No parsed mmap data found");
         return make_decode_error(-2, "No parsed mmap data found");
     }
 
@@ -148,10 +148,9 @@ DecodeError can_decoder_run(const file_service::MetaDataStorageInterface& parsed
 
         if (page.empty())
         {
-            const int32_t page_rc = parsed_mmap.last_error_code();
+            const int32_t page_rc = kDecodeRcReadPageEmpty;
             signal_db.close();
-            return make_decode_error(page_rc != 0 ? page_rc : kDecodeRcReadPageEmpty,
-                                     page_rc != 0 ? "parsed mmap read_page failed" : "read_page returned empty page");
+            return make_decode_error(page_rc, "parsed mmap read_page returned empty page");
         }
 
         const DecodeError process_rc = process_page(
@@ -183,7 +182,7 @@ DecodeError can_decoder_run(const char* parsed_mmap_token, CanDatabaseModel mode
         return make_decode_error(kDecodeRcNullToken, "parsed_mmap_token is null");
     }
 
-    file_service::MetaDataStorageInterface parsed_mmap(parsed_mmap_token);
+    MetaDataStorageInterface parsed_mmap(parsed_mmap_token);
     return can_decoder_run(parsed_mmap, std::move(model));
 }
 

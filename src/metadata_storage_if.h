@@ -7,8 +7,9 @@
 #include "mmap/mmap_data.h"
 #include "parsed_entry_layout.h"
 #include "sqlite/log_index_db.h"
+#include "storage_token.h"
+#include "meta_data_tracker.h"
 
-namespace file_service {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MetaDataStorageInterface — storage-technique-agnostic facade for parsed CAN
@@ -44,51 +45,52 @@ namespace file_service {
 //   are no longer part of the build.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// @brief 20260709 
+///             1. This class is only for display the database with the statistics or context metadata add in for analysis
+/// 				It is not supposed to be used for high throughput read for execution which no need the context metadata like changed, last timestamp,...
+///				2. The class will open RAII on Index + MMap once it created, thus all the quiry + append need to update and sync both storages
 class MetaDataStorageInterface {
 public:
-	explicit MetaDataStorageInterface(std::string mmap_prefix);
+	explicit MetaDataStorageInterface(std::string token_id);
+
+	struct Metadata {
+		double first_timestamp = 0.0;
+		double last_timestamp = 0.0;
+		uint32_t total_rows = 0;
+		std::string source_file_path; // stored by set_source_file_path when parsing
+	};
+
+	Metadata get_metadata() const;
 
 	void open_storage();
+	void set_file_path(const std::string& path);
 	void write_entries(const std::vector<LogRecord>& entries);
-	void update_entries(const std::vector<EntryUpdate>& entries);
-	void set_file_path(std::string file_path);
-	std::string get_file_path() const;
+	void update_entry(uint32_t row_index,
+                      const LogRecord& entry);
 	void close_storage();
 
-	// Payload reads (mmap, zero-copy friendly).
-	std::vector<ParsedEntry> read_page(int64_t first, int64_t last) const;
-	std::vector<ParsedEntry> read_all_entries() const;
-
-	// Unified multi-factor query (SQLite filter -> mmap payload fetch).
-	// Combine any of can_ids / channels / directions / changed / time-range in
-	// one LogQuery. [first, last] is the inclusive page window into the FILTERED
-	// result. Replaces the removed single-factor read_page_from_* methods.
+	std::vector<ParsedEntry> read_page(int32_t first, int32_t last) const;
 	std::vector<ParsedEntry> read_page_multi(const LogQuery& query,
-	                                         int64_t first,
-	                                         int64_t last);
+	                                         int32_t first,
+	                                         int32_t last);
+	bool get_first_last_timestamp(double& out_first_ts,
+							 double& out_last_ts) const;		
 
-	void get_first_last_timestamp(double& out_first_ts,
-	                             double& out_last_ts) const;
-
-	uint64_t fetch_count() const;
+	uint32_t fetch_count() const;
 	const std::string& token_path() const;
-	int32_t last_error_code() const;
+	//int32_t last_error_code() const;
 
 private:
 	friend class MetaDataStorageInterfaceTestAccessor;
+	//void clear_last_error() const;
 
-	std::vector<std::string> data_segment_paths() const;
-
-	bool is_segment_writers_ready() const;
-	void reset_runtime_only();
-	void clear_last_error() const;
-	std::vector<ParsedEntry> read_rows_from_data(const std::vector<uint64_t>& rows) const;
-
-	std::string mmap_prefix_;
-	file_service::mmap::DataMmapInterface data_;
-	file_service::LogIndexDatabase index_db_;
+	std::string token_id;
+	StorageToken storage_token_{""};
+	mmap::DataMmapInterface<mmap::Access::ReadWrite> wdata_;
+	mmap::DataMmapInterface<mmap::Access::ReadOnly> rdata_;
+	LogIndexDatabase index_db_;
+	MetadataTracker tracker_;
 	bool initialized_ = false;
 	mutable int32_t last_error_code_ = 0;
 };
 
-} // namespace file_service

@@ -6,13 +6,16 @@
 #include <vector>
 
 #include "can_analyzer_log.h"
-#include "mmap/mmap_error_codes.h"
+//#include "mmap/mmap_error_codes.h"
 #include <cstring>
+#include <iostream>
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
 
-namespace file_service {
 namespace {
 
-std::pair<int64_t, int64_t> to_page_window(int64_t first, int64_t last) {
+std::pair<int32_t, int32_t> to_page_window(int32_t first, int32_t last) {
     if (last < first) {
         return {first, 0};
     }
@@ -21,211 +24,266 @@ std::pair<int64_t, int64_t> to_page_window(int64_t first, int64_t last) {
 
 } // namespace
 
-MetaDataStorageInterface::MetaDataStorageInterface(std::string mmap_prefix)
-        : mmap_prefix_(std::move(mmap_prefix)),
-            data_(mmap_prefix_),
-            index_db_(mmap_prefix_) {}
-
-int32_t MetaDataStorageInterface::last_error_code() const {
-    return last_error_code_;
+MetaDataStorageInterface::MetaDataStorageInterface(std::string id)
+    : token_id(std::move(id)),
+      storage_token_(token_id),
+      wdata_(storage_token_.mmap_path().string()),
+      rdata_(storage_token_.mmap_path().string()),
+      index_db_(storage_token_.sqlite_path().string())
+{
+    // Diagnostic prints to help identify environment differences between
+    // the main (Python) process and the parser child process.
+    try {
+#if defined(_WIN32)
+        std::cout << "PID = <win>" << std::endl;
+#else
+        std::cout << "PID = " << getpid() << std::endl;
+#endif
+        const char* t = std::getenv("TMPDIR");
+        std::cout << "TMPDIR = " << (t ? t : "<null>") << std::endl;
+        try {
+            std::cout << "temp = " << std::filesystem::temp_directory_path() << std::endl;
+        } catch (const std::exception& e) {
+            std::cout << "temp = <error> " << e.what() << std::endl;
+        }
+        std::cout << "StorageToken.root=" << storage_token_.root() << std::endl;
+        std::cout << "StorageToken.sqlite_path=" << storage_token_.sqlite_path() << std::endl;
+        std::cout << "StorageToken.mmap_path=" << storage_token_.mmap_path() << std::endl;
+    } catch (...) {}
 }
 
-void MetaDataStorageInterface::clear_last_error() const {
-    last_error_code_ = 0;
+void MetaDataStorageInterface::set_file_path(const std::string& path)
+{
+    wdata_.set_source_file_path(path);
 }
 
-void MetaDataStorageInterface::set_file_path(std::string file_path) {
-    data_.set_source_file_path(std::move(file_path));
-}
+// int32_t MetaDataStorageInterface::last_error_code() const {
+//     return last_error_code_;
+// }
 
-std::string MetaDataStorageInterface::get_file_path() const {
-    std::string path;
-    data_.read_source_file_path(path);
-    return path;
-}
-
-bool MetaDataStorageInterface::is_segment_writers_ready() const {
-    return initialized_ && data_.is_ready();
-}
+// void MetaDataStorageInterface::clear_last_error() const {
+//     last_error_code_ = 0;
+// }
 
 
 void MetaDataStorageInterface::open_storage() {
-    CBCM_TRACE("MetaDataStorageInterface::open_mmap enter token=%s", mmap_prefix_.c_str());
-    clear_last_error();
-    initialized_ = false;
+    CBCM_TRACE("MetaDataStorageInterface::open_mmap enter token=%s", token_id.c_str());
+    //clear_last_error();
 
-    data_.open_and_init(); // throws on error
+    //data_.open_and_init(); // throws on error
     // SQLite multi-factor filter index (payload stays in mmap; see header note).
     index_db_.open_append_session();
     //index_db_.initialize_schema();
+}
 
-    initialized_ = true;
+static bool payload_changed(const LogRecord& prev,
+                            const LogRecord& cur)
+{
+    const uint8_t prev_len =
+        std::min(prev.data_len,
+                 static_cast<uint8_t>(sizeof(prev.data)));
+
+    const uint8_t cur_len =
+        std::min(cur.data_len,
+                 static_cast<uint8_t>(sizeof(cur.data)));
+
+    if (prev_len != cur_len)
+    {
+        return true;
+    }
+
+    return cur_len > 0 &&
+           std::memcmp(prev.data, cur.data, cur_len) != 0;
 }
 
 /* Write entries with 1 pass with many storages technical*/
+/// 20260709 TODO: Add the 1 pass write_next for high integrated with the other module
 void MetaDataStorageInterface::write_entries(const std::vector<LogRecord>& entries) {
-    clear_last_error();
-    if (!is_segment_writers_ready()) {
-        last_error_code_ = file_service::mmap::error_code::kWriterNotReady;
-        throw std::runtime_error("MetaDataStorageInterface::write_entries writer not ready");
-    }
+    //clear_last_error();
 
     index_db_.begin_transaction();
     for (const auto& entry : entries)
     {
-        const uint32_t row_index = data_.append_entry(entry);
-        index_db_.append_entry(row_index, entry);
+        ParsedEntry parsed = {};
+        std::memcpy(&parsed, &entry, sizeof(LogRecord));
+        /// NOTE: Instead of storing the prev of all metadata -> store the row index only, other will be derived
+        // const auto meta = tracker_.update(
+        //     entry.can_id,
+        //     entry.data,
+        //     entry.data_len,
+        //     entry.timestamp);
+        // parsed.changed = meta.changed ? 1 : 0;
+        // parsed.last_timestamp = meta.last_timestamp;
+
+        int32_t row_index = wdata_.next_write_idx();
+
+        parsed.prev_same_can = tracker_.append(row_index, entry.can_id);
+
+        // Next is still inknown so just let it kInvalidRow
+        parsed.next_same_can = kInvalidRow;
+
+        // At the first message frame
+        if (parsed.prev_same_can == kInvalidRow)
+        {
+            parsed.changed = 0;
+            parsed.last_timestamp = entry.timestamp;
+        }    
+        else
+        {
+            /// Calculate last timestamp for this entry
+            const ParsedEntry& prev =
+                rdata_.read_entry_at(parsed.prev_same_can);
+
+            parsed.last_timestamp = prev.timestamp;
+            parsed.changed = payload_changed(prev, parsed);
+        }
+
+        wdata_.append_entry(parsed);
+        index_db_.append_index(row_index, parsed);
     }
     index_db_.commit_transaction();
 }
 
-// void MetaDataStorageInterface::write_entries(const std::vector<LogRecord>& entries) {
-//     clear_last_error();
-//     if (!is_segment_writers_ready()) {
-//         last_error_code_ = file_service::mmap::error_code::kWriterNotReady;
-//         throw std::runtime_error("MetaDataStorageInterface::write_entries writer not ready");
-//     }
+// void MetaDataStorageInterface::update_entry(uint32_t row_index,
+//                       const LogRecord& entry) {
 
-//     // Global row index of entries[0] for this batch (before the data write
-//     // advances the counter). Used to key the SQLite index rows 1:1 with mmap.
-//     const uint64_t start_row = data_.total_written();
-
-//     data_.write_entries(entries); // allow exceptions to propagate
-
-//     // Populate the SQLite filter index. "changed" comes from the same buckets the
-//     // data writer produced, so the changed flag stays consistent with payload.
-//     std::unordered_set<uint32_t> changed_rows;
-//     const auto& buckets = data_.index_buckets();
-//     for (const auto& kv : buckets.can_id_changed_rows) {
-//         for (const uint32_t row : kv.second) {
-//             changed_rows.insert(row);
-//         }
-//     }
-
-//     index_db_.begin_transaction();
-//     index_db_.append_entries(entries, start_row, changed_rows);
-//     index_db_.commit_transaction();
+//     index_db_.update_index(row_index, u.record,
+//         [&data = this->rdata_](uint32_t idx) -> LogRecord {
+//             LogRecord rec{};
+//             data.read_entry(idx, rec);
+//             return rec;
+//         });
+//     wdata_.update_entry(row_index, entry);
 // }
+void MetaDataStorageInterface::update_entry(
+    uint32_t row_index,
+    const LogRecord& record)
+{
+    ParsedEntry current{};
+    rdata_.read_entry_at(row_index, current);
 
-void MetaDataStorageInterface::update_entries(const std::vector<EntryUpdate>& entries) {
-    clear_last_error();
-    if (entries.empty()) {
-        return;
+    //
+    // Update the raw CAN frame.
+    //
+    /// +----------------------+
+    // | LogRecord            |  <-- memcpy overwrites this part
+    // +----------------------+
+    // | line_number          |  <-- untouched
+    // +----------------------+
+    // | last_timestamp       |  <-- untouched
+    // +----------------------+
+    // | changed              |  <-- untouched
+    // +----------------------+
+    // | prev_same_can        |  <-- untouched
+    // +----------------------+
+    // | next_same_can        |  <-- untouched
+    // +----------------------+
+    /// NOTE: Could use idomatic here
+    /// static_cast<LogRecord&>(current) = record;
+    /// LogRecord& base = current;
+    /// base = record;
+    std::memcpy(static_cast<LogRecord*>(&current),
+                &record,
+                sizeof(LogRecord));
+
+    //
+    // Recompute metadata from the previous node.
+    //
+    if (current.prev_same_can == kInvalidRow)
+    {
+        current.changed = 0;
+        current.last_timestamp = current.timestamp;
+    }
+    else
+    {
+        ParsedEntry prev{};
+        rdata_.read_entry_at(current.prev_same_can, prev);
+
+        current.last_timestamp = prev.timestamp;
+
+        current.changed =
+            payload_changed(prev, current) ? 1 : 0;
     }
 
-    if (!is_segment_writers_ready()) {
-        last_error_code_ = file_service::mmap::error_code::kWriterNotReady;
-        throw std::runtime_error("MetaDataStorageInterface::update_entries writer not ready");
-    }
+    //
+    // Persist current row.
+    //
+    wdata_.update_entry(row_index, current);
+    index_db_.update_index(row_index, current);
 
-    // Cold path: recompute changed via SQLite neighbor lookup + mmap payload reads,
-    // then overwrite the mmap payload row.
-    for (const EntryUpdate& u : entries) {
-        const uint32_t row_index = static_cast<uint32_t>(u.row_index);
-        index_db_.update_entry(row_index, u.record, data_);
-        data_.update_entry(row_index, u.record);
+    //
+    // Repair the next node because its comparison
+    // depends on the current payload.
+    //
+    if (current.next_same_can != kInvalidRow)
+    {
+        ParsedEntry next{};
+        rdata_.read_entry_at(current.next_same_can, next);
+
+        next.changed =
+            payload_changed(current, next) ? 1 : 0;
+
+        next.last_timestamp = current.timestamp;
+
+        wdata_.update_entry(current.next_same_can, next);
+        index_db_.update_index(current.next_same_can, next);
     }
 }
 
 void MetaDataStorageInterface::close_storage() {
-    CBCM_TRACE("MetaDataStorageInterface::close_mmap enter token=%s", mmap_prefix_.c_str());
-    data_.close_and_finalize();
+    CBCM_TRACE("MetaDataStorageInterface::close_mmap enter token=%s", token_id.c_str());
+    // data_.close_and_finalize();
     index_db_.close_append_session();
-    initialized_ = false;
 }
 
-uint64_t MetaDataStorageInterface::fetch_count() const {
-    clear_last_error();
-    uint64_t total_rows = 0;
-    data_.read_total_rows(total_rows);
-    return total_rows;
+uint32_t MetaDataStorageInterface::fetch_count() const {
+    //clear_last_error();
+    return index_db_.row_count();
 }
 
-void MetaDataStorageInterface::get_first_last_timestamp(double& out_first_ts,
+bool MetaDataStorageInterface::get_first_last_timestamp(double& out_first_ts,
                                                         double& out_last_ts) const {
-    clear_last_error();
-    data_.read_first_last_timestamp(out_first_ts, out_last_ts); // throws on error
+    //clear_last_error();
+    return index_db_.get_first_last_timestamp(out_first_ts, out_last_ts);
 }
 
 const std::string& MetaDataStorageInterface::token_path() const {
-    return mmap_prefix_;
+    return token_id;
 }
 
-std::vector<ParsedEntry> MetaDataStorageInterface::read_all_entries() const {
-    clear_last_error();
-    std::vector<ParsedEntry> entries;
-    data_.read_all_entries(entries); // throws on error
-    return entries;
+MetaDataStorageInterface::Metadata MetaDataStorageInterface::get_metadata() const {
+    Metadata m;
+    m.total_rows = fetch_count();
+    double first = 0, last = 0;
+    if (get_first_last_timestamp(first, last)) {
+        m.first_timestamp = first;
+        m.last_timestamp = last;
+    }
+    // prefer the header-stored source file path from the read mmap
+    try {
+        m.source_file_path = rdata_.source_file_path();
+    } catch (...) {
+        m.source_file_path.clear();
+    }
+    return m;
 }
 
-std::vector<ParsedEntry> MetaDataStorageInterface::read_rows_from_data(const std::vector<uint64_t>& rows) const {
-    clear_last_error();
-    if (rows.empty()) {
-        last_error_code_ = file_service::mmap::error_code::kReadRowsEmptyRequest;
-        CBCM_ERROR("MetaDataStorageInterface::read_rows_from_data empty row request");
-        return {};
-    }
-
-    uint64_t total_rows = 0;
-    data_.read_total_rows(total_rows); // throws on error
-    if (total_rows == 0) {
-        last_error_code_ = file_service::mmap::error_code::kReadRowsNoData;
-        CBCM_ERROR("MetaDataStorageInterface::read_rows_from_data total_rows failed total_rows=%llu",
-                   static_cast<unsigned long long>(total_rows));
-        return {};
-    }
-
-    std::vector<uint64_t> valid_rows;
-    valid_rows.reserve(rows.size());
-    for (uint64_t row : rows) {
-        if (row < total_rows) {
-            valid_rows.push_back(row);
-        }
-    }
-    if (valid_rows.empty()) {
-        last_error_code_ = file_service::mmap::error_code::kReadRowsOutOfRange;
-        CBCM_ERROR("MetaDataStorageInterface::read_rows_from_data all rows out of range requested=%zu total_rows=%llu",
-                   rows.size(),
-                   static_cast<unsigned long long>(total_rows));
-        return {};
-    }
-
-    std::vector<ParsedEntry> entries;
-    data_.read_entries(valid_rows, entries); // throws on error
-    if (entries.empty()) {
-        last_error_code_ = file_service::mmap::error_code::kReadRowsEmptyResult;
-        CBCM_ERROR("MetaDataStorageInterface::read_rows_from_data read_entries returned 0 entries");
-    }
-    return entries;
+std::vector<ParsedEntry> MetaDataStorageInterface::read_page(int32_t offset, int32_t count) const {
+    return rdata_.read_page(offset, count);
 }
 
-std::vector<ParsedEntry> MetaDataStorageInterface::read_page(int64_t first, int64_t last) const {
-    const auto [first_line, page_size] = to_page_window(first, last);
-    const uint64_t start = first_line > 0 ? static_cast<uint64_t>(first_line) : 0ULL;
-    const uint64_t size = page_size > 0 ? static_cast<uint64_t>(page_size) : 0ULL;
-    std::vector<uint64_t> rows;
-    rows.reserve(static_cast<size_t>(size));
-    for (uint64_t i = 0; i < size; ++i) {
-        rows.push_back(start + i);
-    }
-    return read_rows_from_data(rows);
-}
-
+/// @brief Read page with query function
+/// @param query 
+/// @param first 
+/// @param last 
+/// @return  
 std::vector<ParsedEntry> MetaDataStorageInterface::read_page_multi(const LogQuery& query,
-                                                                  int64_t first,
-                                                                  int64_t last) {
-    clear_last_error();
-    // SQLite answers the multi-factor predicate with row indices; mmap fetches
-    // the actual payload for those rows (see design note in metadata_storage_if.h).
-    const std::vector<uint64_t> rows = index_db_.query_row_indices(query, first, last);
+                                                                  int32_t first,
+                                                                  int32_t last) {
+    const std::vector<uint32_t> rows = index_db_.query_row_indices(query, first, last);
     if (rows.empty()) {
         return {};
     }
-    return read_rows_from_data(rows);
+    return rdata_.read_rows(rows);
 }
 
-std::vector<std::string> MetaDataStorageInterface::data_segment_paths() const {
-    return data_.segment_paths();
-}
-
-} // namespace file_service

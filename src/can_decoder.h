@@ -37,6 +37,7 @@ struct SignalDef {
 
 
 #pragma pack(pop)
+
 struct DecodedSignal {
     std::string signal_name;
     int64_t raw_value = 0;
@@ -72,3 +73,4 @@ private:
 };
 
 int64_t extract_signal(const uint8_t* data, int data_len, const SignalDef& sig);
+

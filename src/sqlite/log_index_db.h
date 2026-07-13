@@ -52,12 +52,11 @@
 #include <vector>
 
 #include "parsed_entry_layout.h"
+#include <functional>
 #include "sqlite/sqlite_wrapper.h"
 
 struct sqlite3;
-namespace file_service { namespace mmap { class DataMmapInterface; } }
 
-namespace file_service {
 
 // Generic index DB error return for callers that still use int32_t rc-style
 // APIs. The implementation throws more specific exceptions; callers that need
@@ -82,7 +81,10 @@ struct LogQuery {
 // DecodedSignalDatabase (sql_decode_if.h).
 class LogIndexDatabase {
 public:
-    explicit LogIndexDatabase(const std::string& token_path);
+    // Construct the index DB for the given SQLite database file path.
+    // Path ownership/derivation lives in the caller (MetaDataStorageInterface
+    // via StorageToken); this class only opens/creates the given file.
+    explicit LogIndexDatabase(std::string db_path);
     ~LogIndexDatabase();
 
     LogIndexDatabase(const LogIndexDatabase&) = delete;
@@ -96,20 +98,10 @@ public:
     int32_t begin_transaction();
     int32_t commit_transaction();
 
-    void append_entry(uint32_t row_index,
-                      const LogRecord& entry);
-    bool update_entry(uint32_t row_index,
-                      const LogRecord& entry,
-                      const file_service::mmap::DataMmapInterface& data);
-
-    // Append one write batch to the index. row_index for entries[i] is
-    // start_row_index + i. changed_rows holds the GLOBAL row indices that the
-    // data writer flagged as changed (from IndexBuckets::can_id_changed_rows),
-    // so the SQLite "changed" column stays consistent with the mmap indexes.
-    //int32_t append_entries(const std::vector<LogRecord>& entries,
-                        //    uint64_t start_row_index,
-                        //    const std::unordered_set<uint32_t>& changed_rows);
-
+    void append_index(uint32_t row_index,
+                      const ParsedEntry& entry);
+    bool update_index(uint32_t row_index,
+                      const ParsedEntry& entry);
     // Update existing rows (by trusted EntryUpdate.row_index -> LogRecord)
     // inside one SQLite transaction: BEGIN; UPDATE ...; UPDATE ...; COMMIT;
     //int32_t update_entries(const std::vector<EntryUpdate>& entries);
@@ -117,9 +109,18 @@ public:
     // Multi-factor query. Returns the matching row indices for the requested
     // page (ordered by row_index). [first, last] is the inclusive window into
     // the FILTERED result, matching the old read_page_* paging semantics.
-    std::vector<uint64_t> query_row_indices(const LogQuery& query,
-                                            int64_t first,
-                                            int64_t last);
+    std::vector<uint32_t> query_row_indices(const LogQuery& query,
+                                            int32_t first,
+                                            int32_t last);
+
+    /// @brief 
+    /// @param out_first_ts 
+    /// @param out_last_ts 
+    /// @return False if no rows existed 
+    bool get_first_last_timestamp(double& out_first_ts, double& out_last_ts) const;
+
+    // Return number of indexed rows. Returns 0 on error or when table is empty.
+    uint32_t row_count() const;
 
     //const std::string& last_error_message() const;
 
@@ -129,32 +130,16 @@ private:
         uint8_t data[64] = {0};
     };
 
-    // void ensure_open() const;
     bool compute_changed_and_update(uint32_t can_id,
                                     const uint8_t* data,
                                     uint8_t data_len);
-    /*
-    NOTE: 20260706
-    Raw pointer
-    sqlitew::Stmt* stmt = new sqlitew::Stmt(...);
-
-    // ...
-
-    delete stmt;
-
-    Problems:
-
-    Forget delete → memory leak.
-    Delete twice → crash.
-    Exception before delete → leak.    
-
-    */
-    // Insert statement is created in open() and finalized in close().
+    // Keep a small cache of previous raw payload by can_id for change detection
+    // (legacy code path). This map may be unused if change detection is moved
+    // out of LogIndexDatabase.
+    std::unordered_map<uint32_t, PrevRaw> last_raw_by_id_;
     sqlite3_stmt* stmt_ = nullptr;
     sqlite3* db_ = nullptr;
-    std::unordered_map<uint32_t, PrevRaw> last_raw_by_id_;
     std::string db_path_;
     std::string last_error_message_;
 };
 
-} // namespace file_service

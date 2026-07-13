@@ -54,7 +54,6 @@ LogRecord make_entry(uint32_t line, uint32_t can_id, double ts, const char* chan
 
 }  // namespace
 
-namespace file_service {
 
 class ParsedMmapInterfaceTestAccessor {
 public:
@@ -101,12 +100,11 @@ public:
     }
 };
 
-}  // namespace file_service
 TEST(ParsedMmapInterfaceApi, WriterLifecycleAndApiSmokeCoverage) {
     const std::filesystem::path dir = make_test_temp_dir("parsed_mmap");
     const std::filesystem::path token_path = dir / "token_api";
 
-    file_service::ParsedMmapInterface iface(token_path.string());
+    ParsedMmapInterface iface(token_path.string());
 
     std::vector<LogRecord> entries;
     entries.push_back(make_entry(1, 0x100, 1.0, "ch0"));
@@ -117,11 +115,11 @@ TEST(ParsedMmapInterfaceApi, WriterLifecycleAndApiSmokeCoverage) {
     ASSERT_EQ(iface.open_mmap(), 0);
     EXPECT_EQ(iface.write_entries(entries), 0);
 
-    const auto data_paths = file_service::ParsedMmapInterfaceTestAccessor::data_segment_paths(iface);
-    const auto canid_paths = file_service::ParsedMmapInterfaceTestAccessor::canid_segment_paths(iface);
-    const auto channel_paths = file_service::ParsedMmapInterfaceTestAccessor::channel_segment_paths(iface);
-    const auto direction_paths = file_service::ParsedMmapInterfaceTestAccessor::direction_segment_paths(iface);
-    const auto all_paths = file_service::ParsedMmapInterfaceTestAccessor::all_segment_paths(iface);
+    const auto data_paths = ParsedMmapInterfaceTestAccessor::data_segment_paths(iface);
+    const auto canid_paths = ParsedMmapInterfaceTestAccessor::canid_segment_paths(iface);
+    const auto channel_paths = ParsedMmapInterfaceTestAccessor::channel_segment_paths(iface);
+    const auto direction_paths = ParsedMmapInterfaceTestAccessor::direction_segment_paths(iface);
+    const auto all_paths = ParsedMmapInterfaceTestAccessor::all_segment_paths(iface);
 
     EXPECT_FALSE(data_paths.empty());
     EXPECT_FALSE(canid_paths.empty());
@@ -157,9 +155,9 @@ TEST(ParsedMmapInterfaceApi, SegmentDiscovery) {
         token_path = std::filesystem::temp_directory_path() / token_path;
     }
 
-    file_service::ParsedMmapInterface iface(token_path.string());
+    ParsedMmapInterface iface(token_path.string());
 
-    const auto all_paths = file_service::ParsedMmapInterfaceTestAccessor::all_segment_paths(iface);
+    const auto all_paths = ParsedMmapInterfaceTestAccessor::all_segment_paths(iface);
     EXPECT_FALSE(all_paths.data.empty());
     EXPECT_FALSE(all_paths.canid.empty());
     EXPECT_FALSE(all_paths.channel.empty());
@@ -185,8 +183,8 @@ TEST(ParsedMmapInterfaceApi, SegmentDiscovery) {
 
     uint32_t capacity = 0;
     uint64_t write_count = 0;
-    EXPECT_EQ(file_service::ParsedMmapInterfaceTestAccessor::first_data_segment_capacity(iface, capacity), 0);
-    EXPECT_EQ(file_service::ParsedMmapInterfaceTestAccessor::first_data_segment_write_count(iface, write_count), 0);
+    EXPECT_EQ(ParsedMmapInterfaceTestAccessor::first_data_segment_capacity(iface, capacity), 0);
+    EXPECT_EQ(ParsedMmapInterfaceTestAccessor::first_data_segment_write_count(iface, write_count), 0);
     EXPECT_GT(capacity, 0U);
     EXPECT_GT(write_count, 0U);
     std::cout << "[SegmentDiscovery] first_segment_capacity=" << capacity << "\n";

@@ -425,7 +425,7 @@ void ASCReader::process_classic_can_frame(const std::string& line, LogRecord& ms
 	const std::string& direction = parts[1];
 	const std::string& rest_of_message = parts[2];
 
-	msg.direction = (direction == "Rx");
+	msg.direction = (direction == "Tx");
 	extract_can_id(abr_id_str, msg);
 
 	if (!rest_of_message.empty() &&
@@ -481,7 +481,7 @@ void ASCReader::process_fd_can_frame(const std::string& line, LogRecord& msg) co
 	}
 	const std::string& direction = dir_parts[0];
 	const std::string& rest_of_message = dir_parts[1];
-	msg.direction = (direction == "Rx");
+	msg.direction = (direction == "Tx");
 
 	const std::vector<std::string> frame_parts = split_whitespace_limit(rest_of_message, 2);
 	if (frame_parts.size() < 3) {
