@@ -74,6 +74,8 @@ LogIndexDatabase::LogIndexDatabase(std::string db_path)
     stmt_.prepare(db_, kInsertSql);
 }
 
+LogIndexDatabase::~LogIndexDatabase() = default;
+
 std::string LogIndexDatabase::db_path() const {
     return db_path_;
 }

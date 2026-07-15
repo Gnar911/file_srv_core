@@ -33,23 +33,23 @@ MetaDataStorageInterface::MetaDataStorageInterface(std::string id)
 {
     // Diagnostic prints to help identify environment differences between
     // the main (Python) process and the parser child process.
-    try {
-#if defined(_WIN32)
-        std::cout << "PID = <win>" << std::endl;
-#else
-        std::cout << "PID = " << getpid() << std::endl;
-#endif
-        const char* t = std::getenv("TMPDIR");
-        std::cout << "TMPDIR = " << (t ? t : "<null>") << std::endl;
-        try {
-            std::cout << "temp = " << std::filesystem::temp_directory_path() << std::endl;
-        } catch (const std::exception& e) {
-            std::cout << "temp = <error> " << e.what() << std::endl;
-        }
-        std::cout << "StorageToken.root=" << storage_token_.root() << std::endl;
-        std::cout << "StorageToken.sqlite_path=" << storage_token_.sqlite_path() << std::endl;
-        std::cout << "StorageToken.mmap_path=" << storage_token_.mmap_path() << std::endl;
-    } catch (...) {}
+//     try {
+// #if defined(_WIN32)
+//         std::cout << "PID = <win>" << std::endl;
+// #else
+//         std::cout << "PID = " << getpid() << std::endl;
+// #endif
+//         const char* t = std::getenv("TMPDIR");
+//         std::cout << "TMPDIR = " << (t ? t : "<null>") << std::endl;
+//         try {
+//             std::cout << "temp = " << std::filesystem::temp_directory_path() << std::endl;
+//         } catch (const std::exception& e) {
+//             std::cout << "temp = <error> " << e.what() << std::endl;
+//         }
+//         std::cout << "StorageToken.root=" << storage_token_.root() << std::endl;
+//         std::cout << "StorageToken.sqlite_path=" << storage_token_.sqlite_path() << std::endl;
+//         std::cout << "StorageToken.mmap_path=" << storage_token_.mmap_path() << std::endl;
+//     } catch (...) {}
 }
 
 void MetaDataStorageInterface::set_file_path(const std::string& path)

@@ -14,9 +14,6 @@ public:
 
     explicit Connection(const char* filename) {
         open(filename);
-        sqlitew::exec(get(), "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
-        sqlitew::exec(get(), "PRAGMA synchronous=NORMAL;", nullptr, nullptr, nullptr);
-        sqlitew::exec(get(), "PRAGMA temp_store=MEMORY;", nullptr, nullptr, nullptr);
     }
 
     explicit Connection(const std::string& filename)
@@ -43,12 +40,19 @@ public:
         return *this;
     }
 
+    /// 20260714 BUG: Re-open close when init instance
     void open(const char* filename) {
         if (!filename || filename[0] == '\0') {
             throw std::invalid_argument("sqlite filename is empty");
         }
-        close();
+        //close();
+        if (db_) {
+            return; // already open
+        }
         sqlitew::open(filename, &db_);
+        sqlitew::exec(get(), "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
+        sqlitew::exec(get(), "PRAGMA synchronous=NORMAL;", nullptr, nullptr, nullptr);
+        sqlitew::exec(get(), "PRAGMA temp_store=MEMORY;", nullptr, nullptr, nullptr);
     }
 
     void close() {

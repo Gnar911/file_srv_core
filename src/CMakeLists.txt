@@ -30,6 +30,7 @@ add_library(file_service_core SHARED
     metadata_storage.cpp
     mmap/mmap_data.cpp
     can_decoder.cpp
+    meta_data_tracker.cpp
     sqlite/can_log_decoder.cpp
     sqlite/sql_decode.cpp
     sqlite/sqlite_wrapper.cpp
