@@ -27,19 +27,27 @@ PYBIND11_MODULE(fs_core, m) {
         .def_readwrite("can_id", &LogRecord::can_id)
         .def_readwrite("direction", &LogRecord::direction)
         .def_readwrite("data_len", &LogRecord::data_len)
-        .def_property("data",
-               [](const LogRecord& entry) {
-                    std::vector<uint8_t> out(std::begin(entry.data), std::end(entry.data));
-                    return out;
-               },
-               [](LogRecord& entry, const std::vector<uint8_t>& value) {
-                    std::memset(entry.data, 0, sizeof(entry.data));
-                    const size_t n = value.size() < sizeof(entry.data) ? value.size() : sizeof(entry.data);
-                    for (size_t i = 0; i < n; ++i) {
-                         entry.data[i] = value[i];
-                    }
-               }
-          )
+
+     //    .def_property("data",
+     //           [](const LogRecord& entry) {
+     //                std::vector<uint8_t> out(std::begin(entry.data), std::end(entry.data));
+     //                return out;
+     //           },
+     //           [](LogRecord& entry, const std::vector<uint8_t>& value) {
+     //                std::memset(entry.data, 0, sizeof(entry.data));
+     //                const size_t n = value.size() < sizeof(entry.data) ? value.size() : sizeof(entry.data);
+     //                for (size_t i = 0; i < n; ++i) {
+     //                     entry.data[i] = value[i];
+     //                }
+     //           }
+     //      )
+          .def_property_readonly("data",
+          [](const LogRecord& entry) {
+               return py::bytes(
+                    reinterpret_cast<const char*>(entry.data),
+                    entry.data_len
+               );
+          })
         .def_property("channel",
                [](const LogRecord& entry) {
                     const size_t n = strnlen(entry.channel, sizeof(entry.channel));
