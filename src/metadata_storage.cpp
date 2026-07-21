@@ -29,7 +29,8 @@ MetaDataStorageInterface::MetaDataStorageInterface(std::string id)
       storage_token_(token_id),
       wdata_(storage_token_.mmap_path().string()),
       rdata_(storage_token_.mmap_path().string()),
-      index_db_(storage_token_.sqlite_path().string())
+      index_db_(storage_token_.sqlite_path().string()),
+      browser_(rdata_)
 {
     // Diagnostic prints to help identify environment differences between
     // the main (Python) process and the parser child process.
@@ -269,13 +270,47 @@ std::vector<ParsedEntry> MetaDataStorageInterface::read_page(int32_t offset, int
 /// @param first 
 /// @param last 
 /// @return  
+
 std::vector<ParsedEntry> MetaDataStorageInterface::read_page_multi(const LogQuery& query,
                                                                   int32_t first,
                                                                   int32_t last) {
-    const std::vector<uint32_t> rows = index_db_.query_row_indices(query, first, last);
-    if (rows.empty()) {
-        return {};
-    }
-    return rdata_.read_rows(rows);
+    // const std::vector<uint32_t> rows = index_db_.query_row_indices(query, first, last);
+    // if (rows.empty()) {
+    //     return {};
+    // }
+    // return rdata_.read_rows(rows);
+    return {};
 }
 
+/// NOTE:  MetaDataStorageInterface::browse() should detect an empty filter when logical index == physical index
+/// return full total rows browser
+ViewBrowser&
+MetaDataStorageInterface::browse(
+    const LogQuery& query
+)
+{
+    if (query.empty()) {
+        browser_.set_full_view(
+            index_db_.row_count()
+        );
+
+        return browser_;
+    }
+
+    browser_.set_rows(
+        index_db_.query_row_indices(query)
+    );
+
+    return browser_;
+}
+
+
+ViewBrowser&
+MetaDataStorageInterface::browse_all()
+{
+    browser_.set_full_view(
+        index_db_.row_count()
+    );
+
+    return browser_;
+}

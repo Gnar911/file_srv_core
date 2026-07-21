@@ -75,6 +75,15 @@ struct LogQuery {
     bool   has_time_range = false;            // true => apply [first_ts, last_ts]
     double first_ts      = 0.0;
     double last_ts       = 0.0;
+
+    bool empty() const noexcept
+    {
+        return can_ids.empty()
+            && channels.empty()
+            && directions.empty()
+            && !changed_only
+            && !has_time_range;
+    }
 };
 
 // SQLite index over the parsed rows. Stores only the filterable columns and the
@@ -107,9 +116,7 @@ public:
     // Multi-factor query. Returns the matching row indices for the requested
     // page (ordered by row_index). [first, last] is the inclusive window into
     // the FILTERED result, matching the old read_page_* paging semantics.
-    std::vector<uint32_t> query_row_indices(const LogQuery& query,
-                                            int32_t first,
-                                            int32_t last);
+    std::vector<uint32_t> query_row_indices(const LogQuery& query);
 
     /// @brief 
     /// @param out_first_ts 

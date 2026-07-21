@@ -1,5 +1,6 @@
 #include <string>
 #include <cstring>
+#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -11,6 +12,7 @@
 #include "can_decoder.h"
 #include "can_log_decoder.h"
 #include "metadata_storage_if.h"
+#include "view_browser.h"
 
 namespace py = pybind11;
 
@@ -21,12 +23,37 @@ PYBIND11_MODULE(fs_core, m) {
           return fs_core_abi_version();
      });
 
-    py::class_<LogRecord>(m, "LogRecord")
+     py::class_<LogRecord>(m, "LogRecord")
         .def(py::init<>())
         .def_readwrite("timestamp", &LogRecord::timestamp)
         .def_readwrite("can_id", &LogRecord::can_id)
         .def_readwrite("direction", &LogRecord::direction)
         .def_readwrite("data_len", &LogRecord::data_len)
+
+          .def(py::pickle(
+               [](const LogRecord &p) {
+                    // serialize: (timestamp, can_id, direction, data_bytes, channel, data_len)
+                    std::string channel_str(p.channel, strnlen(p.channel, sizeof(p.channel)));
+                    py::bytes data_bytes(reinterpret_cast<const char*>(p.data), static_cast<ssize_t>(p.data_len));
+                    return py::make_tuple(py::float_(p.timestamp), py::int_(p.can_id), py::int_(p.direction), data_bytes, py::str(channel_str), py::int_(p.data_len));
+               },
+               [](py::object t) {
+                    py::tuple tup = t.cast<py::tuple>();
+                    LogRecord p;
+                    p.timestamp = tup[0].cast<double>();
+                    p.can_id = tup[1].cast<int>();
+                    p.direction = tup[2].cast<int>();
+                    std::string data = tup[3].cast<std::string>();
+                    std::string channel = tup[4].cast<std::string>();
+                    p.data_len = tup[5].cast<int>();
+                    std::memset(p.data, 0, sizeof(p.data));
+                    const size_t copy_n = std::min<size_t>(static_cast<size_t>(p.data_len), data.size());
+                    if (copy_n > 0) std::memcpy(p.data, data.data(), copy_n);
+                    std::memset(p.channel, 0, sizeof(p.channel));
+                    std::strncpy(p.channel, channel.c_str(), sizeof(p.channel) - 1);
+                    return p;
+               }
+          ))
 
      //    .def_property("data",
      //           [](const LogRecord& entry) {
@@ -41,13 +68,22 @@ PYBIND11_MODULE(fs_core, m) {
      //                }
      //           }
      //      )
-          .def_property_readonly("data",
-          [](const LogRecord& entry) {
-               return py::bytes(
-                    reinterpret_cast<const char*>(entry.data),
-                    entry.data_len
-               );
-          })
+          .def_property(
+               "data",
+               // getter: return full 64-byte buffer as bytes
+               [](const LogRecord& r) {
+                    return py::bytes(reinterpret_cast<const char*>(r.data), 64);
+               },
+               // setter: accept bytes and copy into fixed C array, zero-fill remainder
+               [](LogRecord& r, py::bytes value) {
+                    std::string data = value;
+                    if (data.size() > 64) {
+                         throw std::runtime_error("CAN data exceeds 64 bytes");
+                    }
+                    std::fill(std::begin(r.data), std::end(r.data), 0);
+                    std::copy(data.begin(), data.end(), r.data);
+               }
+          )
         .def_property("channel",
                [](const LogRecord& entry) {
                     const size_t n = strnlen(entry.channel, sizeof(entry.channel));
@@ -59,11 +95,41 @@ PYBIND11_MODULE(fs_core, m) {
                }
           );
 
-    py::class_<ParsedEntry, LogRecord>(m, "ParsedEntry")
-        .def(py::init<>())
-        .def_readwrite("line_number", &ParsedEntry::line_number)
-        .def_readwrite("last_timestamp", &ParsedEntry::last_timestamp)
-        .def_readwrite("changed", &ParsedEntry::changed);
+     // ParsedEntry extends LogRecord and is picklable
+     py::class_<ParsedEntry, LogRecord>(m, "ParsedEntry")
+          .def(py::init<>())
+          .def_readwrite("line_number", &ParsedEntry::line_number)
+          .def_readwrite("last_timestamp", &ParsedEntry::last_timestamp)
+          .def_readwrite("changed", &ParsedEntry::changed)
+          .def(py::pickle(
+               [](const ParsedEntry &p) {
+                    std::string channel_str(p.channel, strnlen(p.channel, sizeof(p.channel)));
+                    py::bytes data_bytes(reinterpret_cast<const char*>(p.data), static_cast<ssize_t>(p.data_len));
+                    return py::make_tuple(
+                         py::float_(p.timestamp), py::int_(p.can_id), py::int_(p.direction), data_bytes, py::str(channel_str), py::int_(p.data_len),
+                         py::int_(p.line_number), py::float_(p.last_timestamp), py::int_(p.changed)
+                    );
+               },
+               [](py::object t) {
+                    py::tuple tup = t.cast<py::tuple>();
+                    ParsedEntry p;
+                    p.timestamp = tup[0].cast<double>();
+                    p.can_id = tup[1].cast<int>();
+                    p.direction = tup[2].cast<int>();
+                    std::string data = tup[3].cast<std::string>();
+                    std::string channel = tup[4].cast<std::string>();
+                    p.data_len = tup[5].cast<int>();
+                    p.line_number = tup[6].cast<int>();
+                    p.last_timestamp = tup[7].cast<double>();
+                    p.changed = tup[8].cast<int>();
+                    std::memset(p.data, 0, sizeof(p.data));
+                    const size_t copy_n = std::min<size_t>(static_cast<size_t>(p.data_len), data.size());
+                    if (copy_n > 0) std::memcpy(p.data, data.data(), copy_n);
+                    std::memset(p.channel, 0, sizeof(p.channel));
+                    std::strncpy(p.channel, channel.c_str(), sizeof(p.channel) - 1);
+                    return p;
+               }
+          ));
 
      bind_can_parser(m);
 
@@ -155,8 +221,10 @@ PYBIND11_MODULE(fs_core, m) {
              py::arg("row_index"), py::arg("entry"))
         .def("read_page", &MetaDataStorageInterface::read_page,
              py::arg("first"), py::arg("last"))
-        .def("read_page_multi", &MetaDataStorageInterface::read_page_multi,
-             py::arg("query"), py::arg("first"), py::arg("last"))
+             // New lazy browsing API: execute the SQLite filter and return a
+             // lightweight ViewBrowser that references the mmap payload.
+             .def("browse", &MetaDataStorageInterface::browse, py::arg("query"))
+             .def("browse_all", &MetaDataStorageInterface::browse_all)
           .def("get_first_last_timestamp", [](const MetaDataStorageInterface& self) -> py::object {
                 double first_ts = 0.0;
                 double last_ts = 0.0;
@@ -178,4 +246,21 @@ PYBIND11_MODULE(fs_core, m) {
      py::class_<DataMmapWriter>(m, "DataMmapWriter")
           .def(py::init<const std::string&>())
           .def("append_entry", &DataMmapWriter::append_entry);
+
+         // Expose ViewBrowser: a lightweight, read-only logical view over the
+         // mmap-backed parsed entries. The returned ParsedEntry references the
+         // underlying mmap; lifetime is tied to the DataMmap backing storage.
+         py::class_<ViewBrowser>(m, "ViewBrowser")
+                .def(py::init<const DataMmapReader&>())
+                .def("set_full_view", &ViewBrowser::set_full_view, py::arg("row_count"))
+                .def("set_rows", &ViewBrowser::set_rows, py::arg("rows"))
+             .def("size", &ViewBrowser::size)
+             .def("at", [](const ViewBrowser& vb, uint64_t idx) -> const ParsedEntry& {
+                  return vb.at(idx);
+             }, py::arg("logical_index"), py::return_value_policy::reference_internal)
+             .def("__len__", &ViewBrowser::size)
+             .def("__getitem__", [](const ViewBrowser& vb, uint64_t idx) -> const ParsedEntry& {
+                  return vb.at(idx);
+             }, py::return_value_policy::reference_internal)
+             ;
 }

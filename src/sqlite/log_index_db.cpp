@@ -145,65 +145,192 @@ bool LogIndexDatabase::update_index(uint32_t row_index,
 
 
 
-std::vector<uint32_t> LogIndexDatabase::query_row_indices(const LogQuery& query,
-                                                          int32_t first,
-                                                          int32_t last) {
-    const auto [first_line, page_size] = to_page_window(first, last);
-    if (page_size <= 0) {
-        return {};
-    }
+// std::vector<uint32_t> LogIndexDatabase::query_row_indices(const LogQuery& query,
+//                                                           int32_t first,
+//                                                           int32_t last) {
+//     const auto [first_line, page_size] = to_page_window(first, last);
+//     if (page_size <= 0) {
+//         return {};
+//     }
 
-    // Build the WHERE clause from fixed column names + the *count* of "?"
-    // placeholders. Values are bound below (injection-safe).
-    std::string sql = "SELECT row_index FROM log_index WHERE 1=1";
+//     // Build the WHERE clause from fixed column names + the *count* of "?"
+//     // placeholders. Values are bound below (injection-safe).
+//     std::string sql = "SELECT row_index FROM log_index WHERE 1=1";
 
-    auto append_in = [&sql](const char* column, size_t count) {
+//     auto append_in = [&sql](const char* column, size_t count) {
+//         if (count == 0) {
+//             return;
+//         }
+//         sql += " AND ";
+//         sql += column;
+//         sql += " IN (";
+//         for (size_t i = 0; i < count; ++i) {
+//             sql += (i == 0) ? "?" : ",?";
+//         }
+//         sql += ")";
+//     };
+
+//     append_in("can_id", query.can_ids.size());
+//     append_in("direction", query.directions.size());
+//     append_in("channel", query.channels.size());
+//     if (query.changed_only) {
+//         sql += " AND changed = 1";
+//     }
+//     if (query.has_time_range) {
+//         sql += " AND timestamp BETWEEN ? AND ?";
+//     }
+//     sql += " ORDER BY row_index LIMIT ? OFFSET ?;";
+
+//     Statement query_stmt(db_, sql.c_str());
+
+//     int bind_idx = 1;
+//     for (const uint32_t can_id : query.can_ids) {
+//         query_stmt.bind_int64(bind_idx++, static_cast<sqlite3_int64>(can_id));
+//     }
+//     for (const uint8_t direction : query.directions) {
+//         query_stmt.bind_int64(bind_idx++, static_cast<sqlite3_int64>(direction));
+//     }
+//     for (const std::string& channel : query.channels) {
+//         query_stmt.bind_text(bind_idx++, channel.c_str(), -1, nullptr);
+//     }
+//     if (query.has_time_range) {
+//         query_stmt.bind_double(bind_idx++, query.first_ts);
+//         query_stmt.bind_double(bind_idx++, query.last_ts);
+//     }
+//     query_stmt.bind_int64(bind_idx++, static_cast<sqlite3_int64>(page_size));   // LIMIT
+//     query_stmt.bind_int64(bind_idx++, static_cast<sqlite3_int64>(first_line));  // OFFSET
+
+//     std::vector<uint32_t> rows;
+//     rows.reserve(static_cast<size_t>(page_size));
+//     while (query_stmt.step() == SQLITE_ROW) {
+//         rows.push_back(static_cast<uint32_t>(query_stmt.column_int64(0)));
+//     }
+
+//     return rows;
+// }
+
+
+std::vector<uint32_t>
+LogIndexDatabase::query_row_indices(
+    const LogQuery& query
+) {
+    /*
+     * Build one query that resolves the complete logical filtered view.
+     *
+     * IMPORTANT:
+     * This returns only physical mmap row indices.
+     * It does NOT materialize ParsedEntry payloads.
+     */
+    std::string sql =
+        "SELECT row_index "
+        "FROM log_index "
+        "WHERE 1=1";
+
+    auto append_in =
+        [&sql](const char* column, std::size_t count)
+    {
         if (count == 0) {
             return;
         }
+
         sql += " AND ";
         sql += column;
         sql += " IN (";
-        for (size_t i = 0; i < count; ++i) {
-            sql += (i == 0) ? "?" : ",?";
+
+        for (std::size_t i = 0; i < count; ++i) {
+            sql += (i == 0)
+                ? "?"
+                : ",?";
         }
+
         sql += ")";
     };
 
-    append_in("can_id", query.can_ids.size());
-    append_in("direction", query.directions.size());
-    append_in("channel", query.channels.size());
+    append_in(
+        "can_id",
+        query.can_ids.size()
+    );
+
+    append_in(
+        "direction",
+        query.directions.size()
+    );
+
+    append_in(
+        "channel",
+        query.channels.size()
+    );
+
     if (query.changed_only) {
         sql += " AND changed = 1";
     }
-    if (query.has_time_range) {
-        sql += " AND timestamp BETWEEN ? AND ?";
-    }
-    sql += " ORDER BY row_index LIMIT ? OFFSET ?;";
 
-    Statement query_stmt(db_, sql.c_str());
+    if (query.has_time_range) {
+        sql +=
+            " AND timestamp BETWEEN ? AND ?";
+    }
+
+    /*
+     * Defines logical ordering of ViewBrowser.
+     */
+    sql += " ORDER BY row_index;";
+
+    Statement stmt(
+        db_,
+        sql.c_str()
+    );
 
     int bind_idx = 1;
+
     for (const uint32_t can_id : query.can_ids) {
-        query_stmt.bind_int64(bind_idx++, static_cast<sqlite3_int64>(can_id));
+        stmt.bind_int64(
+            bind_idx++,
+            static_cast<sqlite3_int64>(can_id)
+        );
     }
-    for (const uint8_t direction : query.directions) {
-        query_stmt.bind_int64(bind_idx++, static_cast<sqlite3_int64>(direction));
+
+    for (
+        const uint8_t direction :
+        query.directions
+    ) {
+        stmt.bind_int64(
+            bind_idx++,
+            static_cast<sqlite3_int64>(direction)
+        );
     }
-    for (const std::string& channel : query.channels) {
-        query_stmt.bind_text(bind_idx++, channel.c_str(), -1, nullptr);
+
+    for (
+        const std::string& channel :
+        query.channels
+    ) {
+        stmt.bind_text(
+            bind_idx++,
+            channel.c_str(),
+            -1,
+            nullptr
+        );
     }
+
     if (query.has_time_range) {
-        query_stmt.bind_double(bind_idx++, query.first_ts);
-        query_stmt.bind_double(bind_idx++, query.last_ts);
+        stmt.bind_double(
+            bind_idx++,
+            query.first_ts
+        );
+
+        stmt.bind_double(
+            bind_idx++,
+            query.last_ts
+        );
     }
-    query_stmt.bind_int64(bind_idx++, static_cast<sqlite3_int64>(page_size));   // LIMIT
-    query_stmt.bind_int64(bind_idx++, static_cast<sqlite3_int64>(first_line));  // OFFSET
 
     std::vector<uint32_t> rows;
-    rows.reserve(static_cast<size_t>(page_size));
-    while (query_stmt.step() == SQLITE_ROW) {
-        rows.push_back(static_cast<uint32_t>(query_stmt.column_int64(0)));
+
+    while (stmt.step() == SQLITE_ROW) {
+        rows.push_back(
+            static_cast<uint32_t>(
+                stmt.column_int64(0)
+            )
+        );
     }
 
     return rows;

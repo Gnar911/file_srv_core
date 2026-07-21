@@ -107,7 +107,6 @@ DataMmapInterface<Access::ReadOnly>::read_rows(
 
 const ParsedEntry& DataMmapInterface<Access::ReadOnly>::read_entry_at(uint64_t row_index) const
 {
-    const uint64_t total_rows = header_.write_count();
     return segments_.read_at(row_index);
 }
 

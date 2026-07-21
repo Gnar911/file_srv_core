@@ -35,6 +35,7 @@ add_library(file_service_core SHARED
     sqlite/sql_decode.cpp
     sqlite/sqlite_wrapper.cpp
     sqlite/log_index_db.cpp
+    view_browser.cpp
     mmap/mmap_wrapper.cpp
     mmap/mmap_layout_view.cpp
 )
@@ -105,6 +106,7 @@ if(BUILD_TESTING)
         sqlite/log_index_db.cpp
         metadata_storage.cpp
         meta_data_tracker.cpp
+        view_browser.cpp
         mmap/mmap_data.cpp
         mmap/mmap_wrapper.cpp
         mmap/mmap_layout_view.cpp
@@ -142,4 +144,5 @@ if(BUILD_TESTING)
     add_file_service_test(run_worker_segmented_test tests/test_run_worker_segmented.cpp can_parser.cpp asc_reader.cpp)
     add_file_service_test(log_index_db_test tests/test_log_index_db.cpp)
     add_file_service_test(mmap_data_test tests/test_mmap_data.cpp)
+    add_file_service_test(test_view_browser tests/test_view_browser.cpp)
 endif()

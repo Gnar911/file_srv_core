@@ -9,6 +9,8 @@
 #include "sqlite/log_index_db.h"
 #include "storage_token.h"
 #include "meta_data_tracker.h"
+#include "view_browser.h"
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MetaDataStorageInterface — storage-technique-agnostic facade for parsed CAN
@@ -52,35 +54,53 @@ class MetaDataStorageInterface {
 public:
 	explicit MetaDataStorageInterface(std::string token_id);
 
-	// struct Metadata {
-	// 	double first_timestamp = 0.0; // no fetch
-	// 	double last_timestamp = 0.0; // no fetch
-	// 	uint32_t total_rows = 0; 
-	// 	std::string source_file_path; // no fetch
-	// };
-
-	//Metadata get_metadata() const;
-
 	void set_file_path(const std::string& path);
 	void write_entries(const std::vector<LogRecord>& entries);
 	void update_entry(uint32_t row_index,
                       const LogRecord& entry);
 
 	std::vector<ParsedEntry> read_page(int32_t first, int32_t last) const;
+
+	 [[deprecated]]
 	std::vector<ParsedEntry> read_page_multi(const LogQuery& query,
 	                                         int32_t first,
 	                                         int32_t last);
 	bool get_first_last_timestamp(double& out_first_ts,
-							 double& out_last_ts) const;		
+							 double& out_last_ts) const;	
+							 
+
+
+    /// 20270721 NEW:
+    /// Execute filter once and create a lazy logical view.
+	/// BUG: 
+	//
+	// 1. Raw pointer:	
+	// browser = service.browse(log_id)
+	// service.close(log_id) or by RAII
+	// browser.at(10) # Crashed 
+	//
+	// 2. To avoid crash:
+	// std::weak_ptr<MetaDataStorageInterface>
+	// browser
+	//    ↓
+	// weak_ptr.lock()
+	//    ↓
+	// expired
+	//    ↓
+	// controlled exception
+	//
+	// 3. Make MetaDataStorageInterface own ViewBrowser
+    ViewBrowser& browse(
+        const LogQuery& query
+    );
+
+	ViewBrowser& browse_all();
 
 	uint32_t fetch_count() const;
 	std::string token_path() const;
-	//const std::string& token_path() const;
-	//int32_t last_error_code() const;
 
 private:
 	friend class MetaDataStorageInterfaceTestAccessor;
-	//void clear_last_error() const;
 
 	std::string token_id;
 	StorageToken storage_token_{""};
@@ -88,7 +108,6 @@ private:
 	mmap::DataMmapInterface<mmap::Access::ReadOnly> rdata_;
 	LogIndexDatabase index_db_;
 	MetadataTracker tracker_;
-	bool initialized_ = false;
-	mutable int32_t last_error_code_ = 0;
+	ViewBrowser browser_;
 };
 

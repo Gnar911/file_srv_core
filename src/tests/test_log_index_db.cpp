@@ -84,7 +84,7 @@ TEST(LogIndexDatabaseTest, QueryRowIndicesAndStats) {
 
     // Query by can_id == 1
     LogQuery q1; q1.can_ids = {1};
-    auto rows_can1 = db.query_row_indices(q1, 0, 10);
+    auto rows_can1 = db.query_row_indices(q1);
     ASSERT_EQ(rows_can1.size(), 3u);
     EXPECT_EQ(rows_can1[0], 0u);
     EXPECT_EQ(rows_can1[1], 2u);
@@ -92,7 +92,7 @@ TEST(LogIndexDatabaseTest, QueryRowIndicesAndStats) {
 
     // changed_only filter
     LogQuery q_changed; q_changed.changed_only = true;
-    auto rows_changed = db.query_row_indices(q_changed, 0, 10);
+    auto rows_changed = db.query_row_indices(q_changed);
     // entries with changed==1 are indices 0,3,4
     ASSERT_EQ(rows_changed.size(), 3u);
     EXPECT_EQ(rows_changed[0], 0u);
@@ -101,7 +101,7 @@ TEST(LogIndexDatabaseTest, QueryRowIndicesAndStats) {
 
     // time range 15..45 -> should return indices 1,2,3
     LogQuery q_time; q_time.has_time_range = true; q_time.first_ts = 15.0; q_time.last_ts = 45.0;
-    auto rows_time = db.query_row_indices(q_time, 0, 10);
+    auto rows_time = db.query_row_indices(q_time);
     ASSERT_EQ(rows_time.size(), 3u);
     EXPECT_EQ(rows_time[0], 1u);
     EXPECT_EQ(rows_time[1], 2u);
