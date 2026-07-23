@@ -49,6 +49,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <variant>
 #include <vector>
 
 #include "parsed_entry_layout.h"
@@ -86,6 +87,29 @@ struct LogQuery {
     }
 };
 
+enum class MetadataType {
+    BoundedTimestamp,
+    CanIds,
+    Channels,
+    Total,
+};
+
+struct BoundedTimestamp {
+    double first = 0.0;
+    double last = 0.0;
+};
+
+using CanIdsCollection = std::vector<uint32_t>;
+using ChannelsCollection = std::vector<std::string>;
+using TotalCount = uint32_t;
+
+using MetadataValue = std::variant<
+    BoundedTimestamp,
+    CanIdsCollection,
+    ChannelsCollection,
+    TotalCount
+>;
+
 // SQLite index over the parsed rows. Stores only the filterable columns and the
 // row_index that maps 1:1 to the mmap data store. Mirrors the style of
 // DecodedSignalDatabase (sql_decode_if.h).
@@ -118,6 +142,8 @@ public:
     // the FILTERED result, matching the old read_page_* paging semantics.
     std::vector<uint32_t> query_row_indices(const LogQuery& query);
 
+    MetadataValue get_metadata(MetadataType type) const;
+
     /// @brief 
     /// @param out_first_ts 
     /// @param out_last_ts 
@@ -145,6 +171,8 @@ private:
     std::string db_path_;
     Connection db_;
     Statement stmt_;
+    Statement stmt_can_id_;
+    Statement stmt_channel_;
     std::string last_error_message_;
 };
 

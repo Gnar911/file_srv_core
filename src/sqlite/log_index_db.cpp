@@ -1,6 +1,8 @@
 #include "sqlite/log_index_db.h"
 
+#include <cctype>
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -56,6 +58,14 @@ LogIndexDatabase::LogIndexDatabase(std::string db_path)
                 "(row_index, timestamp, can_id, direction, channel, changed) "
                 "VALUES (?, ?, ?, ?, ?, ?);";
 
+    static const char* kInsertCanIdSql =
+        "INSERT OR IGNORE INTO log_can_ids (can_id) "
+        "VALUES (?);";
+
+    static const char* kInsertChannelSql =
+        "INSERT OR IGNORE INTO log_channels (channel) "
+        "VALUES (?);";
+
     static const char* kSchemaSql =
         "CREATE TABLE IF NOT EXISTS log_index ("
         "  row_index INTEGER PRIMARY KEY,"
@@ -65,6 +75,12 @@ LogIndexDatabase::LogIndexDatabase(std::string db_path)
         "  channel   TEXT    NOT NULL,"
         "  changed   INTEGER NOT NULL"
         ");"
+        "CREATE TABLE IF NOT EXISTS log_can_ids ("
+        "  can_id INTEGER PRIMARY KEY"
+        ");"
+        "CREATE TABLE IF NOT EXISTS log_channels ("
+        "  channel TEXT PRIMARY KEY"
+        ");"
         "CREATE INDEX IF NOT EXISTS idx_log_canid   ON log_index(can_id);"
         "CREATE INDEX IF NOT EXISTS idx_log_channel ON log_index(channel);"
         "CREATE INDEX IF NOT EXISTS idx_log_dir     ON log_index(direction);"
@@ -72,6 +88,8 @@ LogIndexDatabase::LogIndexDatabase(std::string db_path)
 
     sqlitew::exec(db_.get(), kSchemaSql, nullptr, nullptr, nullptr);
     stmt_.prepare(db_, kInsertSql);
+    stmt_can_id_.prepare(db_, kInsertCanIdSql);
+    stmt_channel_.prepare(db_, kInsertChannelSql);
 }
 
 LogIndexDatabase::~LogIndexDatabase() = default;
@@ -110,6 +128,14 @@ void LogIndexDatabase::append_index(
     stmt_.step();
 
     stmt_.reset_and_clear();
+
+    stmt_can_id_.bind_int64(1, entry.can_id);
+    stmt_can_id_.step();
+    stmt_can_id_.reset_and_clear();
+
+    stmt_channel_.bind_text(1, channel.c_str(), -1, nullptr);
+    stmt_channel_.step();
+    stmt_channel_.reset_and_clear();
 }
 
 /// @brief THis is the remark function of the previous one. No need to do query the previous for calculate metadata
@@ -334,6 +360,73 @@ LogIndexDatabase::query_row_indices(
     }
 
     return rows;
+}
+
+MetadataValue LogIndexDatabase::get_metadata(MetadataType type) const {
+    switch (type) {
+    case MetadataType::BoundedTimestamp: {
+        BoundedTimestamp out;
+
+        static const char* kSql =
+            "SELECT "
+            "  (SELECT timestamp FROM log_index "
+            "   ORDER BY row_index ASC LIMIT 1), "
+            "  (SELECT timestamp FROM log_index "
+            "   ORDER BY row_index DESC LIMIT 1);";
+
+        Statement stmt(db_, kSql);
+        if (stmt.step() == SQLITE_ROW) {
+            out.first = stmt.column_double(0);
+            out.last = stmt.column_double(1);
+        }
+
+        return out;
+    }
+
+    case MetadataType::CanIds: {
+        CanIdsCollection out;
+
+        Statement stmt(
+            db_,
+            "SELECT can_id "
+            "FROM log_can_ids "
+            "ORDER BY can_id;"
+        );
+
+        while (stmt.step() == SQLITE_ROW) {
+            out.push_back(
+                static_cast<uint32_t>(stmt.column_int64(0))
+            );
+        }
+
+        return out;
+    }
+
+    case MetadataType::Channels: {
+        ChannelsCollection out;
+
+        Statement stmt(
+            db_,
+            "SELECT channel "
+            "FROM log_channels "
+            "ORDER BY channel;"
+        );
+
+        while (stmt.step() == SQLITE_ROW) {
+            const unsigned char* channel_raw = stmt.column_text(0);
+            const char* channel = reinterpret_cast<const char*>(channel_raw);
+            out.emplace_back(channel != nullptr ? channel : "");
+        }
+
+        return out;
+    }
+
+    case MetadataType::Total: {
+        return row_count();
+    }
+    }
+
+    throw std::invalid_argument("Unknown MetadataType");
 }
 
 

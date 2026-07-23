@@ -37,8 +37,7 @@ PYBIND11_MODULE(fs_core, m) {
                     py::bytes data_bytes(reinterpret_cast<const char*>(p.data), static_cast<ssize_t>(p.data_len));
                     return py::make_tuple(py::float_(p.timestamp), py::int_(p.can_id), py::int_(p.direction), data_bytes, py::str(channel_str), py::int_(p.data_len));
                },
-               [](py::object t) {
-                    py::tuple tup = t.cast<py::tuple>();
+               [](py::tuple tup) {
                     LogRecord p;
                     p.timestamp = tup[0].cast<double>();
                     p.can_id = tup[1].cast<int>();
@@ -110,8 +109,7 @@ PYBIND11_MODULE(fs_core, m) {
                          py::int_(p.line_number), py::float_(p.last_timestamp), py::int_(p.changed)
                     );
                },
-               [](py::object t) {
-                    py::tuple tup = t.cast<py::tuple>();
+               [](py::tuple tup) {
                     ParsedEntry p;
                     p.timestamp = tup[0].cast<double>();
                     p.can_id = tup[1].cast<int>();
@@ -213,6 +211,21 @@ PYBIND11_MODULE(fs_core, m) {
         .def_readwrite("first_ts", &LogQuery::first_ts)
         .def_readwrite("last_ts", &LogQuery::last_ts);
 
+     py::enum_<MetadataType>(m, "MetadataType")
+          .value("BOUNDED_TIMESTAMP", MetadataType::BoundedTimestamp)
+          .value("CAN_IDS", MetadataType::CanIds)
+          .value("CHANNELS", MetadataType::Channels)
+          .value("TOTAL", MetadataType::Total);
+
+     py::class_<BoundedTimestamp>(m, "BoundedTimestamp")
+          .def(py::init<>())
+          .def_readonly("first", &BoundedTimestamp::first)
+          .def_readonly("last", &BoundedTimestamp::last);
+
+     py::class_<LogIndexDatabase>(m, "LogIndexDatabase")
+          .def(py::init<std::string>(), py::arg("db_path"))
+          .def("get_metadata", &LogIndexDatabase::get_metadata, py::arg("type"));
+
      py::class_<MetaDataStorageInterface>(m, "MetaDataStorageInterface")
           .def(py::init<std::string>(), py::arg("mmap_prefix"))
         .def("write_entries", &MetaDataStorageInterface::write_entries,
@@ -232,6 +245,7 @@ PYBIND11_MODULE(fs_core, m) {
                 if (!ok) return py::none();
                 return py::make_tuple(py::float_(first_ts), py::float_(last_ts));
            })
+            .def("get_metadata", &MetaDataStorageInterface::get_metadata, py::arg("type"))
             .def("token_path", &MetaDataStorageInterface::token_path)
         .def("fetch_count", &MetaDataStorageInterface::fetch_count)
        ;

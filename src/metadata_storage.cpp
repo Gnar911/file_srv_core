@@ -236,8 +236,11 @@ std::string MetaDataStorageInterface::token_path() const {
 
 bool MetaDataStorageInterface::get_first_last_timestamp(double& out_first_ts,
                                                         double& out_last_ts) const {
-    //clear_last_error();
     return index_db_.get_first_last_timestamp(out_first_ts, out_last_ts);
+}
+
+MetadataValue MetaDataStorageInterface::get_metadata(MetadataType type) const {
+    return index_db_.get_metadata(type);
 }
 
 // const std::string& MetaDataStorageInterface::token_path() const {

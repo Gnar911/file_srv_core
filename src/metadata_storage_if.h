@@ -67,6 +67,7 @@ public:
 	                                         int32_t last);
 	bool get_first_last_timestamp(double& out_first_ts,
 							 double& out_last_ts) const;	
+	MetadataValue get_metadata(MetadataType type) const;
 							 
 
 

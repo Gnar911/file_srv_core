@@ -108,6 +108,54 @@ TEST(LogIndexDatabaseTest, QueryRowIndicesAndStats) {
     EXPECT_EQ(rows_time[2], 3u);
 }
 
+TEST(LogIndexDatabaseTest, GetMetadataReturnsDistinctIdsAndChannels) {
+    StorageToken token("fs_test_logindex_metadata");
+    const std::string db_path = token.sqlite_path().string();
+
+    std::error_code ec;
+    std::filesystem::remove(db_path, ec);
+
+    LogIndexDatabase db(db_path);
+    db.begin_transaction();
+
+    ParsedEntry e0{}; e0.timestamp = 11.0; e0.can_id = 200; e0.direction = 0; std::snprintf(e0.channel, sizeof(e0.channel), "%s", " CAN0 "); e0.changed = 0;
+    ParsedEntry e1{}; e1.timestamp = 12.5; e1.can_id = 100; e1.direction = 1; std::snprintf(e1.channel, sizeof(e1.channel), "%s", "can1"); e1.changed = 1;
+    ParsedEntry e2{}; e2.timestamp = 13.0; e2.can_id = 200; e2.direction = 1; std::snprintf(e2.channel, sizeof(e2.channel), "%s", "can0"); e2.changed = 1;
+    ParsedEntry e3{}; e3.timestamp = 15.5; e3.can_id = 300; e3.direction = 0; std::snprintf(e3.channel, sizeof(e3.channel), "%s", "   "); e3.changed = 0;
+
+    db.append_index(0u, e0);
+    db.append_index(1u, e1);
+    db.append_index(2u, e2);
+    db.append_index(3u, e3);
+
+    db.commit_transaction();
+
+    const MetadataValue timestamps_val = db.get_metadata(MetadataType::BoundedTimestamp);
+    const MetadataValue can_ids_val = db.get_metadata(MetadataType::CanIds);
+    const MetadataValue channels_val = db.get_metadata(MetadataType::Channels);
+    const MetadataValue total_val = db.get_metadata(MetadataType::Total);
+
+    const BoundedTimestamp timestamps = std::get<BoundedTimestamp>(timestamps_val);
+    const CanIdsCollection can_ids = std::get<CanIdsCollection>(can_ids_val);
+    const ChannelsCollection channels = std::get<ChannelsCollection>(channels_val);
+    const TotalCount total = std::get<TotalCount>(total_val);
+
+    EXPECT_DOUBLE_EQ(timestamps.first, 11.0);
+    EXPECT_DOUBLE_EQ(timestamps.last, 15.5);
+
+    ASSERT_EQ(can_ids.size(), 3u);
+    EXPECT_EQ(can_ids[0], 100u);
+    EXPECT_EQ(can_ids[1], 200u);
+    EXPECT_EQ(can_ids[2], 300u);
+
+    ASSERT_EQ(channels.size(), 3u);
+    EXPECT_EQ(channels[0], "can0");
+    EXPECT_EQ(channels[1], "can1");
+    EXPECT_EQ(channels[2], "unknown");
+
+    EXPECT_EQ(total, 4u);
+}
+
 // Verify that `row_count()` remains usable while another thread is appending
 // rows. The writer commits after each insert so readers can observe growth.
 TEST(LogIndexDatabaseTest, ConcurrentAppendRowCount) {
